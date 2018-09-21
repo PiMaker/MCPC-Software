@@ -1,2 +1,4 @@
 # mscr
-MCPC Scripting Language
+MCPC Not-Quite-Scripting Language
+
+Compiles to MCPC Assembler code.
