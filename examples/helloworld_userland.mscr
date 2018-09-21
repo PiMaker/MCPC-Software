@@ -1,0 +1,10 @@
+const text = "Hello Borld!";
+
+func main (argc, argp) {
+    var letter = _d(text + 6);
+    letter = 'W';
+    
+    _syscall(SYS_PRINT, text);
+
+    return 0;
+}

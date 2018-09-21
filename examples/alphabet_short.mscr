@@ -1,0 +1,13 @@
+func var main (argc, argp) {
+    var pos = _d(0x8086);
+    for var i from 0 to 4 {
+        var char = 65;
+        for var j from 0 to 25 {
+            var p = _d([pos + j + i*98]);
+            p = [char + j];
+        }
+    }
+
+    _halt();
+    return 0;
+}

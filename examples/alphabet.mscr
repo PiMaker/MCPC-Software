@@ -1,0 +1,33 @@
+/* Defines */
+#define VGA_MEM_POINTER 0x8086
+#define CONSOLE_WIDTH 98
+#define ASCII_A 'A'
+#define ASCII_Z 'Z'
+
+global vga_mem;
+global cursorPositionX;
+global cursorPositionY;
+
+#include "alphabet_lib.mscr"
+
+
+// Entrypoint
+func var main (argc, argp) {
+
+    vga_mem = _d(VGA_MEM_POINTER); // _d dereferences, _r creates referencing pointers
+    
+    var iteration;
+    while [iteration < 5] {
+        iteration += 1;
+
+        alphabet();
+
+        cursorPositionY += 1;
+        cursorPositionX = 0;
+    }
+
+#ifdef VGA_MEM_POINTER // Preprocessor test
+    _halt();
+    return 0; // Unreachable
+#endif
+}

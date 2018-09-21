@@ -1,0 +1,25 @@
+const CONSOLE_WIDTH = 98;
+const ASCII_A = 'A';
+const ASCII_Z = 'Z';
+const text = "Hello world!";
+const VGA_MEM_POINTER = 0x8086;
+
+
+
+global cursorPositionY;
+
+
+// Entrypoint
+func var main (argc, argp) { // test
+}
+
+
+func inline void putchar (char) {
+}
+
+func void alphabet () {
+y += 4;
+var z = "Hello world!";
+var gagabubu = VGA_MEM_POINTER;
+	var x = [_d(27 + 4) * 3];
+}

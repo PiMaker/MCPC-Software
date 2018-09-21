@@ -1,0 +1,17 @@
+func inline void putchar (char) {
+    _reg_assign(REG_A, char);
+    _reg_assign(REG_B, [vga_mem + cursorPositionX + (cursorPositionY * CONSOLE_WIDTH)]);
+    _asm {
+        MEMW A B
+    }
+}
+
+func void alphabet () {
+    var curChar = ASCII_A;
+
+    while [curChar <= ASCII_Z] {
+        putchar(curChar);
+        curChar += 1;
+        cursorPositionX += 1;
+    }
+}
