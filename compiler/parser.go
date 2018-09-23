@@ -37,8 +37,6 @@ type Function struct {
 	Name       string        `@Ident`
 	Parameters []string      `"(" { @Ident [","] } ")"`
 	Body       []*Expression `"{" { @@ } "}"`
-
-	functionLabel string
 }
 
 type ForLoop struct {
@@ -102,8 +100,6 @@ type Global struct {
 
 	Name  string `"global" @Ident`
 	Value *Value `["=" @@]`
-
-	memoryAddress int
 }
 
 type Value struct {
