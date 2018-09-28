@@ -7,9 +7,13 @@ import (
 	"unicode"
 )
 
-func (ast *AST) GenerateASM() string {
+func (ast *AST) GenerateASM(bootloader bool) string {
 
-	log.Println("Generating ASM...")
+	if bootloader {
+		log.Println("! Using bootloader mode !")
+	}
+
+	log.Println("Validating source...")
 
 	/*fmt.Println("AST:")
 	walkInterface(ast, func(val reflect.Value, name string, depth int) {
@@ -32,16 +36,17 @@ func (ast *AST) GenerateASM() string {
 		}
 	}, nil, 0)*/
 
-	asm := ""
+	asm := make([]*asmCmd, 0)
 
 	// Redefinition detection tables
 	var globalTable []*Global
-	var functionTable []string
+	var functionTableVar []string
+	var functionTableVoid []string
 
 	// Fill tables
 	walkInterface(ast, func(val reflect.Value, name string, depth int) {
 
-		if val.Kind() != reflect.Struct {
+		if !(val.Kind() == reflect.Struct || (val.Kind() == reflect.Ptr && val.Elem().Kind() == reflect.Struct)) {
 			// Early out if value instead of node
 			return
 		}
@@ -50,50 +55,67 @@ func (ast *AST) GenerateASM() string {
 
 		switch node := nodeInterface.(type) {
 
-		case Global:
+		case *Global:
 			for _, g := range globalTable {
 				if g.Name == node.Name {
 					log.Fatalf("Redefinition of global '%s' at %s\n", node.Name, node.Pos.String())
 				}
 			}
-			globalTable = append(globalTable, &node)
+			globalTable = append(globalTable, node)
 
-		case Function:
-			functionLabel := fmt.Sprintf("mscr_function_%s_%s_params_%d", node.Type, node.Name, len(node.Parameters))
-			for _, f := range functionTable {
+		case *Function:
+			functionLabel := getFuncLabel(*node)
+			for _, f := range append(functionTableVoid, functionTableVar...) {
 				if f == functionLabel {
 					log.Fatalf("Redefinition of function '%s' at %s\n", node.Name, node.Pos.String())
 				}
 			}
-			functionTable = append(functionTable, functionLabel)
+
+			if node.Type == "var" {
+				functionTableVar = append(functionTableVar, functionLabel)
+			} else if node.Type == "void" {
+				functionTableVoid = append(functionTableVoid, functionLabel)
+			}
 		}
 
 	}, nil, 0)
 
 	// Check for entry point existance
 	containsMain := false
-	for _, f := range functionTable {
-		if f == "mscr_function_var_main_params_2" {
+	for _, f := range functionTableVar {
+		if f == "mscr_function_main_params_2" {
 			containsMain = true
 			break
 		}
 	}
 	if !containsMain {
-		log.Fatalln("Entry point not found: Please declare a function 'func var main (argc, argp)'")
+		log.Fatalln("ERROR: Entry point not found. Please declare a function 'func var main (argc, argp)'")
 	}
 
 	transformState := &asmTransformState{
-		functionTable:   functionTable,
+		functionTableVar:  functionTableVar,
+		functionTableVoid: functionTableVoid,
+
 		currentFunction: "",
 
 		globalMemoryMap: make(map[string]int, 0),
-		maxGlobalAddr:   0,
+		stringMap:       make(map[string]int, 0),
+		maxDataAddr:     0,
+
+		variableMap: make(map[string][]asmVar, 0),
+
+		scopeRegisterDirty: make(map[int]bool, AssigneableRegisters),
+
+		specificInitializationAsm: make([]*asmCmd, 0),
+		binData:                   make([]int16, 0),
 	}
 
-	// Output ASM
+	// Generate Meta-ASM
+	log.Println("Generating Meta-ASM...")
+
 	walkInterface(ast, func(val reflect.Value, name string, depth int) {
 
-		if val.Kind() != reflect.Struct {
+		if !(val.Kind() == reflect.Struct || (val.Kind() == reflect.Ptr && val.Elem().Kind() == reflect.Struct)) {
 			// Early out if value instead of node
 			return
 		}
@@ -101,23 +123,143 @@ func (ast *AST) GenerateASM() string {
 		nodeInterface := val.Interface()
 		newAsm := asmForNodePre(nodeInterface, transformState)
 
-		if newAsm != "" {
-			asm = fmt.Sprintf("%s\n; %s (func: %s)\n%s", asm, name, transformState.currentFunction, newAsm)
+		if len(newAsm) == 0 {
+			return
 		}
+
+		for i := range newAsm {
+			newAsm[i].comment = fmt.Sprintf("%s [%s (in func: %s)]", newAsm[i].comment, name, transformState.currentFunction)
+		}
+
+		asm = append(asm, newAsm...)
 
 	}, func(val reflect.Value, name string, depth int) {
 
-		if val.Kind() != reflect.Struct {
+		if !(val.Kind() == reflect.Struct || (val.Kind() == reflect.Ptr && val.Elem().Kind() == reflect.Struct)) {
 			// Early out if value instead of node
 			return
 		}
 
 		nodeInterface := val.Interface()
-		asmForNodePost(nodeInterface, transformState)
+		newAsm := asmForNodePost(nodeInterface, transformState)
+
+		if len(newAsm) == 0 {
+			return
+		}
+
+		for i := range newAsm {
+			newAsm[i].comment = fmt.Sprintf("%s [%s (in func: %s)]", newAsm[i].comment, name, transformState.currentFunction)
+		}
+
+		// Formatting
+		newAsm[len(newAsm)-1].comment += "\n"
+
+		asm = append(asm, newAsm...)
 
 	}, 0)
 
-	return initializationAsm + asm
+	// Prepend bootloader init call to userland init if necessary
+	if bootloader {
+		transformState.specificInitializationAsm = append([]*asmCmd{
+			&asmCmd{
+				ins: "CALL .mscr_init_bootloader",
+			},
+		}, transformState.specificInitializationAsm...)
+	}
+
+	// Prepare specific init asm
+	transformState.specificInitializationAsm = append([]*asmCmd{
+		&asmCmd{
+			ins: ".mscr_init_userland __LABEL_SET",
+		},
+	}, append(transformState.specificInitializationAsm, &asmCmd{
+		ins:     "RET",
+		comment: "Userland init end\n",
+	})...)
+	asm = append(transformState.specificInitializationAsm, asm...)
+
+	// Insert __CLEARSCOPE to beginning of asm to initialize scoping correctly
+	asm = append([]*asmCmd{
+		&asmCmd{
+			ins: "__CLEARSCOPE",
+		},
+	}, asm...)
+
+	// Fix up global and string references
+	// Necessary, because identifiers are by default auto-assigned to var param types
+	for _, a := range asm {
+		a.fixGlobalAndStringParamTypes(transformState)
+	}
+
+	// Generate ASM
+	log.Println("Resolving Meta-ASM...")
+
+	// Resolve meta-asm
+	resolvePass := 0
+	for !isResolved(asm) {
+		resolvePass++
+
+		if resolvePass >= 100 {
+			log.Fatalln("ERROR: Too many resolving passes, something has gone horribly wrong :(")
+		}
+
+		log.Printf("  Resolve pass: %d\n", resolvePass)
+
+		initAsm := make([]*asmCmd, 0)
+		resolveMetaAsm(asm, initAsm, transformState)
+
+		// Append initAsm generated by resolving
+		asm = append(initAsm, asm...)
+	}
+
+	// Print asm to string and check for warnings in compiled code
+	log.Println("Generating output ASM...")
+	outputAsm := ""
+	prevIns := &asmCmd{
+		ins: "",
+	}
+	for _, a := range asm {
+		outputAsm += a.asmString() + "\n"
+
+		// Check for no return
+		if a.ins == "FAULT" && a.params[0].value == FAULT_NO_RETURN && prevIns.ins != "RET" {
+			fmt.Printf("WARNING: Function without trailing (default) return (%s)\n", a.scope)
+		}
+
+		prevIns = a
+	}
+
+	bootloaderInitialization := ""
+	if bootloader {
+		bootloaderInitialization = fmt.Sprintf(bootloaderInitAsm, 4+len(transformState.binData))
+	}
+
+	// Create data section
+	dataAsm := "0x4000 ; HSP\n\n"
+	for _, d := range transformState.binData {
+		dataAsm += fmt.Sprintf("0x%x\n", d)
+	}
+
+	// Combine everything together
+	return "; Generated using MSCR compiler version " + CompilerVersion + "\n\nJMP .mscr_init_main\n\n" +
+		dataAsm +
+		initializationAsm +
+		bootloaderInitialization +
+		outputAsm +
+		".mscr_code_end HALT" // Trailer (0x0, but includes label for Assembler)
+}
+
+func resolveMetaAsm(asm []*asmCmd, initAsm []*asmCmd, transformState *asmTransformState) {
+	for i := 0; i < len(asm); i++ {
+		resolved := asm[i].resolve(initAsm, transformState)
+		if len(resolved) == 0 {
+			continue
+		} else if len(resolved) == 1 {
+			asm[i] = resolved[0]
+		} else {
+			asm = append(asm[0:i], append(resolved, asm[(i+1):len(asm)]...)...)
+		}
+	}
 }
 
 func walkInterface(x interface{}, pre func(reflect.Value, string, int), post func(reflect.Value, string, int), level int) {
@@ -149,11 +291,11 @@ func walkInterface(x interface{}, pre func(reflect.Value, string, int), post fun
 				}
 
 				if pre != nil {
-					pre(s2, styp.Name, level)
+					pre(tryAddr(s2), styp.Name, level)
 				}
 				walkInterface(s2.Interface(), pre, post, level+1)
 				if post != nil {
-					post(s2, styp.Name, level)
+					post(tryAddr(s2), styp.Name, level)
 				}
 			}
 
@@ -169,7 +311,7 @@ func walkInterface(x interface{}, pre func(reflect.Value, string, int), post fun
 			}
 
 			if pre != nil {
-				pre(s, styp.Name, level)
+				pre(tryAddr(s), styp.Name, level)
 			}
 
 			// Check exported status
@@ -179,22 +321,54 @@ func walkInterface(x interface{}, pre func(reflect.Value, string, int), post fun
 			}
 
 			if post != nil {
-				post(s, styp.Name, level)
+				post(tryAddr(s), styp.Name, level)
 			}
 		}
 	}
 }
 
-const initializationAsm = `
-; Generated by the MSCR compiler
+func tryAddr(val reflect.Value) reflect.Value {
+	if val.CanAddr() {
+		return val.Addr()
+	} else {
+		return val
+	}
+}
 
+const initializationAsm = `
 ; MSCR initialization routine
 .mscr_init_main __LABEL_SET
-SET SP
-0x7FFE ; highest memory location - 1
+SET SP ; Stack
+0x3FFE
+SET H ; VarHeap
+.mscr_code_end
 
-CALL mscr_function_var_main_params_2 ; Call userland main
+CALL .mscr_init_userland ; Call program specific initialization
+
+MOV 0 A
+PUSH 0
+CALL .mscr_function_var_main_params_2 ; Call userland main
 
 HALT ; After execution, halt
+
+`
+
+const bootloaderInitAsm = `
+; MSCR bootloader static value loader
+.mscr_init_bootloader SETREG A 0x%x ; Data block end address
+SETREG B 0x0003 ; Data start
+SETREG C 0xD000 ; Start of readonly CFG region for bootloader ROM
+
+.mscr_init_bootloader_loop_start __REG_ASSIGN
+MEMR D C ; Read from ROM to regD
+MEMW D B ; Write to RAM
+INC C ; Increment read address
+INC B ; Increment write address
+EQ A D B ; Check if we reached end of data and jump accordingly
+JMPNZ .mscr_init_bootloader_return D
+JMP .mscr_init_bootloader_loop_start
+
+.mscr_init_bootloader_return RET ; Return out
+
 
 `

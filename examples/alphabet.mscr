@@ -5,14 +5,30 @@
 #define ASCII_Z 'Z'
 
 global vga_mem;
-global cursorPositionX;
-global cursorPositionY;
+global cursorPositionX = 0;
+global testString = "Hello world!";
+global cursorPositionY = 1;
 
 #include "alphabet_lib.mscr"
 
 
+func var testAdd (a, b, c, d, e, f) {
+    return [a+b+c+d+e+f];
+    _asm { MOV A A }
+}
+
+
 // Entrypoint
 func var main (argc, argp) {
+
+    if [argc != 0] {
+        _asm{HALT}
+        return 1;
+    } else {
+        testAdd(1,2,3,
+            4,5,6);
+        argc = testAdd(0x7184,2,3,4,5,6);
+    }
 
     vga_mem = _d(VGA_MEM_POINTER); // _d dereferences, _r creates referencing pointers
     
@@ -27,7 +43,7 @@ func var main (argc, argp) {
     }
 
 #ifdef VGA_MEM_POINTER // Preprocessor test
-    _halt();
-    return 0; // Unreachable
+    _asm{HALT}
+    return 0; // Technically (and practically) unreachable
 #endif
 }

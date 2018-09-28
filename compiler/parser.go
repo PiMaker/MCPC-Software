@@ -60,7 +60,8 @@ type Conditional struct {
 	Pos lexer.Position
 
 	Condition string        `"if" @Eval`
-	Body      []*Expression `"{" { @@ } "}"`
+	BodyIf    []*Expression `"{" { @@ } "}"`
+	BodyElse  []*Expression `["else" "{" { @@ } "}"]`
 }
 
 type Variable struct {
@@ -85,14 +86,20 @@ type FunctionCall struct {
 	Parameters   []*RuntimeValue `"(" { @@ [","] } ")"`
 }
 
+type RVFunctionCall struct {
+	Pos lexer.Position
+
+	FunctionName string          `@Ident`
+	Parameters   []*RuntimeValue `"(" { @@ [","] } ")"`
+}
+
 type RuntimeValue struct {
 	Pos lexer.Position
 
-	FunctionCall *FunctionCall `  @@`
-	Eval         *string       `| @Eval`
-	Number       *int          `| @Int`
-	Text         *string       `| @String`
-	Ident        *string       `| @Ident`
+	FunctionCall *RVFunctionCall `  @@`
+	Eval         *string         `| @Eval`
+	Number       *int            `| @Int`
+	Ident        *string         `| @Ident`
 }
 
 type Global struct {

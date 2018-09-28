@@ -9,10 +9,8 @@ import (
 )
 
 func main() {
-	//os.Args = []string{"", ".\\examples\\parsing_test.mscr", ".\\examples\\alphabet.ma"}
-
-	if len(os.Args) != 3 {
-		log.Fatalln("Command line usage: mscr <input.mscr> <output.ma>")
+	if len(os.Args) < 3 {
+		log.Fatalln("Command line usage: mscr <input.mscr> <output.ma> [--bootloader]")
 	}
 
 	inputFile := os.Args[1]
@@ -24,7 +22,7 @@ func main() {
 
 	compiler.Preprocess(inputFile, tempFile)
 	ast := compiler.GenerateAST(tempFile)
-	asm := []byte(ast.GenerateASM())
+	asm := []byte(ast.GenerateASM(len(os.Args) > 3 && os.Args[3] == "--bootloader"))
 
 	os.Remove(tempFile) // Errors ignored
 
