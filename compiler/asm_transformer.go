@@ -70,6 +70,7 @@ type asmTransformState struct {
 type asmVar struct {
 	name        string
 	orderNumber int
+	isGlobal    bool
 }
 
 func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCmd {
@@ -102,6 +103,7 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 				scopeAnnotationRegister: i,
 			})
 
+			// Register parameters as variables
 			addVariable(astNode.Parameters[i], state)
 		}
 
@@ -149,7 +151,7 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 		var newData []int16
 		if astNode.Value != nil && astNode.Value.Text != nil {
 			// String global
-			state.stringMap[astNode.Name] = state.maxDataAddr + 4
+			state.stringMap[astNode.Name] = state.maxDataAddr
 
 			newData = make([]int16, len(*astNode.Value.Text)+1)
 			for i, c := range *astNode.Value.Text {
@@ -165,7 +167,7 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 				val = *astNode.Value.Number
 			}
 
-			state.globalMemoryMap[astNode.Name] = state.maxDataAddr + 4
+			state.globalMemoryMap[astNode.Name] = state.maxDataAddr
 			newData = []int16{int16(val)}
 		}
 
@@ -211,12 +213,7 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 		ifEndAsm := "JMP ." + getConditionalLabelEnd(*astNode)
 
 		elseStartAsm := "." + getConditionalLabelElse(*astNode)
-		if len(astNode.BodyElse) > 0 {
-			elseStartAsm += " __LABEL_SET"
-		} else {
-			// Dummy expression to avoid double __LABEL_SET on empty else block
-			elseStartAsm += " NOOP"
-		}
+		elseStartAsm += " __LABEL_SET"
 
 		astNode.BodyElse = append([]*Expression{
 			makeAsmExpression(ifEndAsm),
@@ -378,6 +375,7 @@ func asmForNodePost(nodeInterface interface{}, state *asmTransformState) []*asmC
 					value:        FAULT_NO_RETURN,
 				},
 			},
+			comment: " Ending function: " + node.Name,
 		})
 
 		// Formatting
@@ -385,19 +383,18 @@ func asmForNodePost(nodeInterface interface{}, state *asmTransformState) []*asmC
 			cmd.printIndent = state.printIndent + 1
 		}
 
-		// Clear scope and insert no-return fault on function end
+		// Clear scope
 		state.currentFunction = ""
 		state.currentScopeVariableCount = 0
 
 		return retval
 
-	// TODO: Remove unnecessary NOOP instructions from Conditionals and Loops
 	case *Conditional:
 		state.printIndent--
 
 		return []*asmCmd{
 			&asmCmd{
-				ins:         fmt.Sprintf(".%s NOOP", getConditionalLabelEnd(*node)),
+				ins:         fmt.Sprintf(".%s __LABEL_SET", getConditionalLabelEnd(*node)),
 				printIndent: state.printIndent + 1,
 			}}
 	case *WhileLoop:
@@ -409,7 +406,7 @@ func asmForNodePost(nodeInterface interface{}, state *asmTransformState) []*asmC
 				printIndent: state.printIndent + 1,
 			},
 			&asmCmd{
-				ins:         fmt.Sprintf(".%s NOOP", getWhileLoopLabelEnd(*node)),
+				ins:         fmt.Sprintf(".%s __LABEL_SET", getWhileLoopLabelEnd(*node)),
 				printIndent: state.printIndent + 1,
 			},
 		}

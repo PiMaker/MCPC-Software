@@ -1,11 +1,11 @@
 # Internal M-Script compiler documentation
 
 Register allocation:
-A: Free, global temp, return value
-B: Free, global temp
-C: Free, global temp
-D: Free, calc 1
-E: Free, calc 2
+A: Free, return value
+B: Free
+C: Free
+D: Free
+E: Free
 F: calc out, stack staging
 G: MSCR Scratch
 H: VarHeap pointer

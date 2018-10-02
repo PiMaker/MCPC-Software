@@ -3,6 +3,8 @@ package compiler
 import (
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 )
 
 const AssigneableRegisters = 5
@@ -24,6 +26,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 
 	if cmd.ins == "__ASSUMESCOPE" {
 		state.scopeRegisterAssignment[cmd.scopeAnnotationName] = cmd.scopeAnnotationRegister
+		state.scopeRegisterDirty[cmd.scopeAnnotationRegister] = true
 		return output
 	}
 
@@ -134,22 +137,27 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 			p.asmParamType = asmParamTypeCalc
 			p.value = fmt.Sprintf("[%d]", len(state.variableMap[cmd.scope]))
 
-		// Variable in read mode
-		case asmParamTypeVarRead, asmParamTypeVarWrite:
+		// Variable/Global access
+		case asmParamTypeVarRead, asmParamTypeVarWrite, asmParamTypeGlobalRead, asmParamTypeGlobalWrite:
 			p.asmParamType = asmParamTypeRaw
 			asmVar := getAsmVar(p.value, cmd.scope, state)
 
 			// Check if variable already checked out into register
+			found := false
 			for varName, varReg := range state.scopeRegisterAssignment {
 				if varName == asmVar.name {
 					// Found
 					p.value = toReg(varReg)
 
 					// Mark dirty on write
-					state.scopeRegisterDirty[varReg] = p.asmParamType == asmParamTypeVarWrite
+					state.scopeRegisterDirty[varReg] = p.asmParamType == asmParamTypeVarWrite || p.asmParamType == asmParamTypeGlobalWrite
 
-					break
+					found = true
 				}
+			}
+
+			if found {
+				break
 			}
 
 			// Assign register to variable
@@ -165,9 +173,6 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 			p.value = toReg(reg)
 			cmdAssignedRegisters = append(cmdAssignedRegisters, reg)
 
-			// Update state
-			state.scopeRegisterAssignment[asmVar.name] = reg
-
 			// If marked dirty, flush to VarHeap before loading new value
 			if state.scopeRegisterDirty[reg] {
 				nameForReg := getNameForRegister(reg, state)
@@ -179,20 +184,27 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 
 				// Update state for consistency
 				delete(state.scopeRegisterAssignment, *nameForReg)
-				state.scopeRegisterDirty[reg] = p.asmParamType == asmParamTypeVarWrite
 			}
 
-			// Load value
-			output = append(output, varFromHeap(asmVar, toReg(reg), state, cmd.scope)...)
+			// Set dirty on write
+			state.scopeRegisterDirty[reg] = p.asmParamType == asmParamTypeVarWrite || p.asmParamType == asmParamTypeGlobalWrite
+
+			// Load value (only on read, on write it will be overwritten anyway)
+			if p.asmParamType == asmParamTypeVarRead || p.asmParamType == asmParamTypeGlobalRead {
+				output = append(output, varFromHeap(asmVar, toReg(reg), state, cmd.scope)...)
+			}
+
+			// Update state
+			state.scopeRegisterAssignment[asmVar.name] = reg
 
 		case asmParamTypeStringRead:
-			// TODO
-
-		case asmParamTypeGlobalRead, asmParamTypeGlobalWrite:
-			// TODO
+			// This is always a pointer to the start of the specfied string data
+			p.asmParamType = asmParamTypeCalc
+			p.value = strconv.Itoa(state.stringMap[p.value])
 
 		case asmParamTypeCalc:
-			// BIG TODO
+			p.asmParamType = asmParamTypeRaw
+			p.value = "[{[ " + p.value + " ]}]"
 
 		}
 	}
@@ -232,17 +244,65 @@ func getAsmVar(name string, scope string, state *asmTransformState) *asmVar {
 	for _, v := range state.variableMap[scope] {
 		if v.name == name {
 			avar = &v
+			break
 		}
 	}
 
 	if avar == nil {
-		log.Fatalf("ERROR: Invalid variable name in resolve: %s (scope: %s)\n", name, scope)
+		// Search for global if locally scoped variabled couldn't be found
+		// This is safe, because it is guaranteed at this stage that no variable can be named the same as any given global
+		for gname, addr := range state.globalMemoryMap {
+			if gname == name {
+				avar = &asmVar{
+					name:        name,
+					orderNumber: addr,
+					isGlobal:    true,
+				}
+			}
+		}
+
+		if avar == nil {
+			log.Fatalf("ERROR: Invalid variable name in resolve: %s (scope: %s)\n", name, scope)
+		}
 	}
 
 	return avar
 }
 
 func varToHeap(v *asmVar, register string, state *asmTransformState, cmdScope string) []*asmCmd {
+	if v.isGlobal {
+		return []*asmCmd{
+			&asmCmd{
+				ins: "SETREG",
+				params: []*asmParam{
+					&asmParam{
+						asmParamType: asmParamTypeRaw,
+						value:        "G",
+					},
+					&asmParam{
+						asmParamType: asmParamTypeRaw,
+						value:        fmt.Sprintf("0x%x", v.orderNumber), // orderNumber of global is memory address directly
+					},
+				},
+				scope: cmdScope,
+			},
+			&asmCmd{
+				ins: "STOR",
+				params: []*asmParam{
+					&asmParam{
+						asmParamType: asmParamTypeRaw,
+						value:        register,
+					},
+					&asmParam{
+						asmParamType: asmParamTypeRaw,
+						value:        "G",
+					},
+				},
+				scope: cmdScope,
+			},
+		}
+	}
+
 	return []*asmCmd{
 		&asmCmd{
 			ins: "SETREG",
@@ -293,13 +353,52 @@ func varToHeap(v *asmVar, register string, state *asmTransformState, cmdScope st
 	}
 
 	/*
+		; Non-global case:
 		SETREG G <orderNumber>
 		SUB H G G
+		STOR <register> G
+
+		; Global case
+		SETREG G <orderNumber alias address>
 		STOR <register> G
 	*/
 }
 
 func varFromHeap(v *asmVar, register string, state *asmTransformState, cmdScope string) []*asmCmd {
+	if v.isGlobal {
+		// For doc on global handling see varToHeap
+		return []*asmCmd{
+			&asmCmd{
+				ins: "SETREG",
+				params: []*asmParam{
+					&asmParam{
+						asmParamType: asmParamTypeRaw,
+						value:        "G",
+					},
+					&asmParam{
+						asmParamType: asmParamTypeRaw,
+						value:        fmt.Sprintf("0x%x", v.orderNumber),
+					},
+				},
+				scope: cmdScope,
+			},
+			&asmCmd{
+				ins: "LOAD",
+				params: []*asmParam{
+					&asmParam{
+						asmParamType: asmParamTypeRaw,
+						value:        register,
+					},
+					&asmParam{
+						asmParamType: asmParamTypeRaw,
+						value:        "G",
+					},
+				},
+				scope: cmdScope,
+			},
+		}
+	}
+
 	return []*asmCmd{
 		&asmCmd{
 			ins: "SETREG",
@@ -356,6 +455,7 @@ func varFromHeap(v *asmVar, register string, state *asmTransformState, cmdScope 
 	*/
 }
 
+// Fixes globals and strings incorrectly being detected as variable identifiers
 func (cmd *asmCmd) fixGlobalAndStringParamTypes(state *asmTransformState) {
 	if cmd.params != nil && len(cmd.params) > 0 {
 		for _, p := range cmd.params {
@@ -394,6 +494,7 @@ func (cmd *asmCmd) fixGlobalAndStringParamTypes(state *asmTransformState) {
 	}
 }
 
+// Generates valid MCPC assembly from an asmCmd
 func (cmd *asmCmd) asmString() string {
 	retval := cmd.ins
 
@@ -408,12 +509,13 @@ func (cmd *asmCmd) asmString() string {
 	}
 
 	if cmd.comment != "" {
-		retval += fmt.Sprintf(" \t;%s", cmd.comment)
+		retval += fmt.Sprintf(" ;%s", strings.TrimRight(cmd.comment, "\n"))
 	}
 
 	return retval
 }
 
+// Debug information for an asmCmd in pre-formatted string form
 func (cmd *asmCmd) String() string {
 	retval := cmd.ins
 
@@ -445,7 +547,7 @@ func (cmd *asmCmd) String() string {
 	}
 
 	if cmd.comment != "" {
-		retval += fmt.Sprintf(" \t;%s", cmd.comment)
+		retval += fmt.Sprintf(" ;%s", cmd.comment)
 	}
 
 	for ind := 0; ind < cmd.printIndent; ind++ {

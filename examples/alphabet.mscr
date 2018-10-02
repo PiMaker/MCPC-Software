@@ -12,12 +12,6 @@ global cursorPositionY = 1;
 #include "alphabet_lib.mscr"
 
 
-func var testAdd (a, b, c, d, e, f) {
-    return [a+b+c+d+e+f];
-    _asm { MOV A A }
-}
-
-
 // Entrypoint
 func var main (argc, argp) {
 
@@ -46,4 +40,8 @@ func var main (argc, argp) {
     _asm{HALT}
     return 0; // Technically (and practically) unreachable
 #endif
+}
+
+func var testAdd (a, b, c, d, e, f) {
+    return [a+b+c+d+e+f];
 }

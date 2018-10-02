@@ -15,7 +15,7 @@ import (
 	"github.com/alecthomas/participle/lexer"
 )
 
-const CompilerVersion = "0.1.0"
+const CompilerVersion = "0.1.2"
 
 const LexerRegex = `(?s)(\s+)|` +
 	`(?P<Int>(?:0x)?\d+)|` +
@@ -44,10 +44,12 @@ func Preprocess(inputFile, outputFile string) {
 	}
 
 	log.Printf("Executing GPP: %s -o %s -C %s\n", cmd, outputFile, inputFile)
-	err := exec.Command(cmd, "-o", outputFile, "-C", inputFile).Run()
+	stdout, err := exec.Command(cmd, "-o", outputFile, "-C", inputFile).CombinedOutput()
+
+	fmt.Print(string(stdout))
 
 	if err != nil {
-		log.Fatalln("ERROR in preprocessor: " + err.Error())
+		log.Fatalln(err.Error())
 	}
 }
 
