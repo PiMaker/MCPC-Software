@@ -15,7 +15,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 	// Meta-instructions
 	// Return early if they are not reflected in output ASM
 	if cmd.ins == "__CLEARSCOPE" {
-		// This fixes so many issues but is so horribly inperformant
+		// This fixes so many issues but is horribly inperformant
 		// Nevermind though, sprinkle that shit all over
 		// I'm not debugging my algorithm any further my dudes
 		// Just liberally put workarounds all over the place
@@ -131,6 +131,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 
 	// Parameter translation (meta asm->real asm)
 	cmdAssignedRegisters := make([]int, 0)
+	processedCalc := false
 	for _, p := range cmd.params {
 		switch p.asmParamType {
 		case asmParamTypeScopeVarCount:
@@ -203,9 +204,18 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 			p.value = strconv.Itoa(state.stringMap[p.value])
 
 		case asmParamTypeCalc:
-			p.asmParamType = asmParamTypeRaw
-			p.value = "[{[ " + p.value + " ]}]"
+			if processedCalc {
+				log.Fatalln("ERROR: Two calc parameters found in one meta-assembly instruction, invalid state.")
+			}
 
+			// Resolve calculation to assembly
+			// This will put result in "F"
+			calcAsm := resolveCalc(p.value, cmd.scope)
+			output = append(output, calcAsm...)
+
+			p.asmParamType = asmParamTypeRaw
+			p.value = "F" // F is calcOut register
+			processedCalc = true
 		}
 	}
 

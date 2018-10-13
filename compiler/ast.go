@@ -193,7 +193,7 @@ func (ast *AST) GenerateASM(bootloader bool) string {
 
 		// DEBUG
 		// TODO/FIXME: Remove
-		fmt.Println(a.String())
+		//fmt.Println(a.String())
 	}
 
 	// Generate ASM

@@ -6,8 +6,8 @@ B: Free
 C: Free
 D: Free
 E: Free
-F: calc out, stack staging
-G: MSCR Scratch
+F: calc out, stack staging, calc
+G: MSCR Scratch, calc
 H: VarHeap pointer
 
 

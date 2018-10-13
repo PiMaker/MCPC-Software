@@ -15,7 +15,7 @@ import (
 	"github.com/alecthomas/participle/lexer"
 )
 
-const CompilerVersion = "0.1.2"
+const CompilerVersion = "0.1.3"
 
 const LexerRegex = `(?s)(\s+)|` +
 	`(?P<Int>(?:0x)?\d+)|` +
