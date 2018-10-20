@@ -5,9 +5,9 @@ A: Free, return value
 B: Free
 C: Free
 D: Free
-E: Free
+E: calc
 F: calc out, stack staging, calc
-G: MSCR Scratch, calc
+G: MSCR Scratch
 H: VarHeap pointer
 
 
@@ -20,8 +20,7 @@ HSP-    ... Heap
 ...
 (no VarHeap/stack collision protection as of yet!)
 ...
-<-0x3FFE ... Stack (downward)
-0x3FFF ... Reserved/Scratch area
+<-0x7FFF ... Stack (downward)
 
 
 Function calling:

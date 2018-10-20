@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const AssigneableRegisters = 5
+const AssigneableRegisters = 4
 
 func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCmd {
 	output := make([]*asmCmd, 0)
@@ -38,6 +38,25 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 					if i == varReg {
 						// Match for dirty var and corresponding register, save to heap
 						output = append(output, varToHeap(getAsmVar(varName, cmd.scope, state), toReg(i), state, cmd.scope)...)
+					}
+				}
+			}
+		}
+		state.scopeRegisterDirty = make(map[int]bool, AssigneableRegisters)
+		return output
+	}
+
+	if cmd.ins == "__FLUSHGLOBALS" {
+		// Save only globals to VarHeap
+		for i, dirty := range state.scopeRegisterDirty {
+			if dirty {
+				for varName, varReg := range state.scopeRegisterAssignment {
+					if i == varReg {
+						// Match for dirty var and corresponding register, save to heap
+						asmVar := getAsmVar(varName, cmd.scope, state)
+						if asmVar.isGlobal {
+							output = append(output, varToHeap(asmVar, toReg(i), state, cmd.scope)...)
+						}
 					}
 				}
 			}
@@ -77,37 +96,53 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 				// Variable present, but in wrong register
 				otherName := getNameForRegister(cmd.scopeAnnotationRegister, state)
 				if otherName == nil {
-					log.Fatalln("ERROR: Variable<>Register assignment failure; Internal error, scopeRegisterAssignment map inconsistent.")
+					//log.Println("ERROR: No name found for register: " + toReg(cmd.scopeAnnotationRegister))
+					//log.Fatalln("ERROR: Variable<>Register assignment failure; Internal error, scopeRegisterAssignment map inconsistent.")
+
+					// Wait I think I just realized this just means we need to move the var over since the target register is empty anyway
+					output = append(output, []*asmCmd{
+						&asmCmd{
+							ins: "MOV",
+							params: []*asmParam{
+								rawAsmParam(toReg(varReg)),
+								rawAsmParam(toReg(cmd.scopeAnnotationRegister)),
+							},
+						},
+					}...)
+
+					// Updates state
+					state.scopeRegisterDirty[varReg] = false
+					state.scopeRegisterAssignment[varName] = cmd.scopeAnnotationRegister
+				} else {
+					// Commence swapping
+					output = append(output, []*asmCmd{
+						&asmCmd{
+							ins: "MOV",
+							params: []*asmParam{
+								rawAsmParam(toReg(cmd.scopeAnnotationRegister)),
+								rawAsmParam("G"),
+							},
+						},
+						&asmCmd{
+							ins: "MOV",
+							params: []*asmParam{
+								rawAsmParam(toReg(varReg)),
+								rawAsmParam(toReg(cmd.scopeAnnotationRegister)),
+							},
+						},
+						&asmCmd{
+							ins: "MOV",
+							params: []*asmParam{
+								rawAsmParam("G"),
+								rawAsmParam(toReg(varReg)),
+							},
+						},
+					}...)
+
+					// Update state
+					state.scopeRegisterAssignment[varName] = state.scopeRegisterAssignment[*otherName]
+					state.scopeRegisterAssignment[*otherName] = varReg
 				}
-
-				// Commence swapping
-				output = append(output, []*asmCmd{
-					&asmCmd{
-						ins: "MOV",
-						params: []*asmParam{
-							rawAsmParam(toReg(cmd.scopeAnnotationRegister)),
-							rawAsmParam("G"),
-						},
-					},
-					&asmCmd{
-						ins: "MOV",
-						params: []*asmParam{
-							rawAsmParam(toReg(varReg)),
-							rawAsmParam(toReg(cmd.scopeAnnotationRegister)),
-						},
-					},
-					&asmCmd{
-						ins: "MOV",
-						params: []*asmParam{
-							rawAsmParam("G"),
-							rawAsmParam(toReg(varReg)),
-						},
-					},
-				}...)
-
-				// Update state
-				state.scopeRegisterAssignment[varName] = state.scopeRegisterAssignment[*otherName]
-				state.scopeRegisterAssignment[*otherName] = varReg
 
 				return output
 			}
@@ -129,9 +164,39 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 		return output
 	}
 
+	// Handle calc parameters first to avoid glitches with scoped variable assignment later on
+	// Self-Recursive resolving will take care of the rest
+	processedCalc := false
+	for _, p := range cmd.params {
+		if p.asmParamType == asmParamTypeCalc {
+			if processedCalc {
+				log.Fatalln("ERROR: Two calc parameters found in one meta-assembly instruction, invalid state.")
+			}
+
+			// Resolve calculation to assembly
+			// This will put result in "F"
+			calcAsm := resolveCalc(p.value, cmd.scope, state)
+			output = append(output, calcAsm...)
+
+			p.asmParamType = asmParamTypeRaw
+			p.value = "F" // F is calcOut register
+			processedCalc = true
+		}
+	}
+
+	// Calc found - exit early
+	if processedCalc {
+		// Special case of SETREG which doesn't accept registers, but could be used to set a "calc literal" to a register
+		if cmd.ins == "SETREG" {
+			cmd.ins = "MOV"
+			cmd.params[0], cmd.params[1] = cmd.params[1], cmd.params[0]
+		}
+
+		return append(output, cmd)
+	}
+
 	// Parameter translation (meta asm->real asm)
 	cmdAssignedRegisters := make([]int, 0)
-	processedCalc := false
 	for _, p := range cmd.params {
 		switch p.asmParamType {
 		case asmParamTypeScopeVarCount:
@@ -140,7 +205,11 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 
 		// Variable/Global access
 		case asmParamTypeVarRead, asmParamTypeVarWrite, asmParamTypeGlobalRead, asmParamTypeGlobalWrite:
-			p.asmParamType = asmParamTypeRaw
+
+			//if p.asmParamType == asmParamTypeGlobalRead {
+			//	fmt.Println("DEBUG")
+			//}
+
 			asmVar := getAsmVar(p.value, cmd.scope, state)
 
 			// Check if variable already checked out into register
@@ -158,6 +227,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 			}
 
 			if found {
+				p.asmParamType = asmParamTypeRaw
 				break
 			}
 
@@ -198,27 +268,20 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 			// Update state
 			state.scopeRegisterAssignment[asmVar.name] = reg
 
+			// Set paramType to raw last to avoid errors above
+			p.asmParamType = asmParamTypeRaw
+
 		case asmParamTypeStringRead:
 			// This is always a pointer to the start of the specfied string data
 			p.asmParamType = asmParamTypeCalc
 			p.value = strconv.Itoa(state.stringMap[p.value])
 
 		case asmParamTypeCalc:
-			if processedCalc {
-				log.Fatalln("ERROR: Two calc parameters found in one meta-assembly instruction, invalid state.")
-			}
-
-			// Resolve calculation to assembly
-			// This will put result in "F"
-			calcAsm := resolveCalc(p.value, cmd.scope)
-			output = append(output, calcAsm...)
-
-			p.asmParamType = asmParamTypeRaw
-			p.value = "F" // F is calcOut register
-			processedCalc = true
+			log.Fatalln("ERROR: Calc parameter was not resolved. This is most likely a compiler error.")
 		}
 	}
 
+	// Note to self: Any change above here but below for loop should be reflected in early exits as well (especially calc early-out)
 	return append(output, cmd)
 }
 

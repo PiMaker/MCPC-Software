@@ -364,7 +364,7 @@ const initializationAsm = `
 ; MSCR initialization routine
 .mscr_init_main __LABEL_SET
 SET SP ; Stack
-0x3FFE
+0x7FFF
 SET H ; VarHeap
 .mscr_code_end
 
@@ -382,9 +382,9 @@ const bootloaderInitAsm = `
 ; MSCR bootloader static value loader
 .mscr_init_bootloader SETREG A 0x%x ; Data block end address
 SETREG B 0x0003 ; Data start
-SETREG C 0xD003 ; Start of readonly CFG region for bootloader ROM
+SETREG C 0xD000 ; Start of readonly CFG region for bootloader ROM
 
-.mscr_init_bootloader_loop_start __REG_ASSIGN
+.mscr_init_bootloader_loop_start __LABEL_SET
 MEMR D C ; Read from ROM to regD
 MEMW D B ; Write to RAM
 INC C ; Increment read address

@@ -14,7 +14,7 @@
             "host": "127.0.0.1",
             "program": "${fileDirname}",
             "env": {},
-            "args": ["./examples/alphabet.mscr", "./examples/alphabet.ma"],
+            "args": ["./examples/calc.mscr", "./examples/calc.ma"],
             "showLog": false
         }
     ]

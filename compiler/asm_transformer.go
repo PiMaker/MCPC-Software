@@ -133,13 +133,12 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 				log.Fatalln("ERROR: A call to _reg_assign must have a variable as its second parameter. Source: " + astNode.Pos.String())
 			}
 
-			newAsm = append(newAsm, []*asmCmd{
-				&asmCmd{
-					ins:                     "__FORCESCOPE",
-					scopeAnnotationName:     *varParam.Ident,
-					scopeAnnotationRegister: *regParam.Number,
-				},
-			}...)
+			newAsm = append(newAsm, &asmCmd{
+				ins:                     "__FORCESCOPE",
+				scopeAnnotationName:     *varParam.Ident,
+				scopeAnnotationRegister: *regParam.Number,
+				comment:                 " _reg_assign",
+			})
 
 			break
 		}
@@ -301,7 +300,7 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 				}
 			}
 		} else if astNode.Return != nil {
-			// Return
+			// Return (TODO: Maybe handle void functions differently?)
 			newAsm = append(newAsm, &asmCmd{
 				ins: "MOV",
 				params: []*asmParam{
@@ -313,6 +312,9 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 				},
 			})
 			newAsm = append(newAsm, funcPopState(state)...)
+			newAsm = append(newAsm, &asmCmd{
+				ins: "__FLUSHGLOBALS",
+			})
 			newAsm = append(newAsm, &asmCmd{
 				ins: "RET",
 			})
@@ -361,6 +363,9 @@ func asmForNodePost(nodeInterface interface{}, state *asmTransformState) []*asmC
 
 		if isVoid {
 			retval = append(retval, funcPopState(state)...)
+			retval = append(retval, &asmCmd{
+				ins: "__FLUSHGLOBALS",
+			})
 			retval = append(retval, &asmCmd{
 				ins: "RET",
 			})
