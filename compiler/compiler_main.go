@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 
+	gppbin "github.com/PiMaker/mscr/gpp-bin"
+
 	"github.com/alecthomas/participle"
 	"github.com/alecthomas/participle/lexer"
 )
@@ -33,7 +35,18 @@ func Preprocess(inputFile, outputFile string) {
 		log.Fatalln(err)
 	}*/
 
-	cmd := "gpp"
+	cmd := os.TempDir() + string(os.PathSeparator) + "gpp"
+
+	if _, err := exec.LookPath("gpp"); err == nil {
+		log.Println("gpp found in path")
+		cmd = "gpp"
+	} else {
+		log.Println("gpp not in path, using bundled version")
+		err = gppbin.RestoreAsset(os.TempDir()+string(os.PathSeparator), "gpp")
+		if err != nil {
+			log.Fatalln("ERROR: Could not extract bundled gpp: " + err.Error())
+		}
+	}
 
 	if _, err := os.Stat("./gpp"); err == nil {
 		cmd = "./gpp"

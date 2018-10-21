@@ -107,11 +107,33 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 			addVariable(astNode.Parameters[i], state)
 		}
 
+		// Temporarily store return address in E
+		newAsm = append(newAsm, &asmCmd{
+			ins: "POP",
+			params: []*asmParam{
+				&asmParam{
+					asmParamType: asmParamTypeRaw,
+					value:        "E",
+				},
+			},
+		})
+
 		for i := 1; i < len(astNode.Parameters); i++ {
 			// varFromStack scopes automatically (via asmParamTypeVarWrite)
 			newAsm = append(newAsm, varFromStack(astNode.Parameters[i], state)...)
 			addVariable(astNode.Parameters[i], state)
 		}
+
+		// Push return address back
+		newAsm = append(newAsm, &asmCmd{
+			ins: "PUSH",
+			params: []*asmParam{
+				&asmParam{
+					asmParamType: asmParamTypeRaw,
+					value:        "E",
+				},
+			},
+		})
 
 		state.printIndent++
 

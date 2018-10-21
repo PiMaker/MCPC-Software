@@ -5,7 +5,7 @@ A: Free, return value
 B: Free
 C: Free
 D: Free
-E: calc
+E: calc, return addr temp
 F: calc out, stack staging, calc
 G: MSCR Scratch
 H: VarHeap pointer

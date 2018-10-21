@@ -2,6 +2,5 @@ global test = 0x20;
 
 func var main (argc, argp) {
     var a = [test - argc + 2 * (2 * 7)];
-    _reg_assign(7, a); // Display result on hex display
     return a;
 }

@@ -372,7 +372,10 @@ CALL .mscr_init_userland ; Call program specific initialization
 
 MOV 0 A
 PUSH 0
-CALL .mscr_function_var_main_params_2 ; Call userland main
+CALL .mscr_function_main_params_2 ; Call userland main
+
+; After main, put exit code to H for now
+MOV A H
 
 HALT ; After execution, halt
 
@@ -382,11 +385,11 @@ const bootloaderInitAsm = `
 ; MSCR bootloader static value loader
 .mscr_init_bootloader SETREG A 0x%x ; Data block end address
 SETREG B 0x0003 ; Data start
-SETREG C 0xD000 ; Start of readonly CFG region for bootloader ROM
+SETREG C 0xD003 ; Start of readonly CFG region for bootloader ROM + offset for data start
 
 .mscr_init_bootloader_loop_start __LABEL_SET
-MEMR D C ; Read from ROM to regD
-MEMW D B ; Write to RAM
+LOAD D C ; Read from ROM to regD
+STOR D B ; Write to RAM
 INC C ; Increment read address
 INC B ; Increment write address
 EQ A D B ; Check if we reached end of data and jump accordingly
