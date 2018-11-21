@@ -24,6 +24,10 @@ func main() {
 	ast := compiler.GenerateAST(tempFile)
 	asm := []byte(ast.GenerateASM(len(os.Args) > 3 && os.Args[3] == "--bootloader"))
 
+	for _, ch := range ast.CommentHeaders {
+		asm = append([]byte(ch+"\r\n"), asm...)
+	}
+
 	os.Remove(tempFile) // Errors ignored
 
 	ioutil.WriteFile(outputFile, asm, 0644)

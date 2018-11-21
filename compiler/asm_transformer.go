@@ -3,7 +3,6 @@ package compiler
 import (
 	"fmt"
 	"log"
-	"math"
 	"reflect"
 	"regexp"
 	"strings"
@@ -92,21 +91,6 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 		})
 		newAsm = append(newAsm, funcPushState(state)...)
 
-		// Function parameter handling
-		// Loop for legacy reasons
-		for i := 0; i < int(math.Min(1, float64(len(astNode.Parameters)))); i++ {
-			// Manually set scope via meta-instruction,
-			// data is set via register parameter calling conventions
-			newAsm = append(newAsm, &asmCmd{
-				ins:                     "__ASSUMESCOPE",
-				scopeAnnotationName:     astNode.Parameters[i],
-				scopeAnnotationRegister: i,
-			})
-
-			// Register parameters as variables
-			addVariable(astNode.Parameters[i], state)
-		}
-
 		// Temporarily store return address in E
 		newAsm = append(newAsm, &asmCmd{
 			ins: "POP",
@@ -118,7 +102,8 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 			},
 		})
 
-		for i := 1; i < len(astNode.Parameters); i++ {
+		// Read parameters from stack
+		for i := 0; i < len(astNode.Parameters); i++ {
 			// varFromStack scopes automatically (via asmParamTypeVarWrite)
 			newAsm = append(newAsm, varFromStack(astNode.Parameters[i], state)...)
 			addVariable(astNode.Parameters[i], state)
@@ -138,6 +123,8 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 		state.printIndent++
 
 	case *FunctionCall:
+		// Function call is only used when the return value is ignored! Otherwise function calls are handled as calc expressions!
+
 		// Special handling for _reg_assign
 		if astNode.FunctionName == "_reg_assign" {
 			if len(astNode.Parameters) != 2 {
@@ -315,7 +302,7 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 						continue
 					}
 
-					newAsm[0].params = append(newAsm[0].params, &asmParam{
+					newAsm[len(newAsm)-1].params = append(newAsm[0].params, &asmParam{
 						value:        cmd[1],
 						asmParamType: asmParamTypeRaw,
 					})
@@ -332,10 +319,12 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 						value:        "A",
 					},
 				},
+				scope: state.currentFunction,
 			})
 			newAsm = append(newAsm, funcPopState(state)...)
 			newAsm = append(newAsm, &asmCmd{
-				ins: "__FLUSHGLOBALS",
+				ins:   "__FLUSHGLOBALS",
+				scope: state.currentFunction,
 			})
 			newAsm = append(newAsm, &asmCmd{
 				ins: "RET",
@@ -386,7 +375,8 @@ func asmForNodePost(nodeInterface interface{}, state *asmTransformState) []*asmC
 		if isVoid {
 			retval = append(retval, funcPopState(state)...)
 			retval = append(retval, &asmCmd{
-				ins: "__FLUSHGLOBALS",
+				ins:   "__FLUSHGLOBALS",
+				scope: state.currentFunction,
 			})
 			retval = append(retval, &asmCmd{
 				ins: "RET",
@@ -402,6 +392,7 @@ func asmForNodePost(nodeInterface interface{}, state *asmTransformState) []*asmC
 					value:        FAULT_NO_RETURN,
 				},
 			},
+			scope:   state.currentFunction,
 			comment: " Ending function: " + node.Name,
 		})
 

@@ -370,11 +370,11 @@ SET H ; VarHeap
 
 CALL .mscr_init_userland ; Call program specific initialization
 
-MOV 0 A
-PUSH 0
+PUSH 0 ; argp
+PUSH 0 ; argc
 CALL .mscr_function_main_params_2 ; Call userland main
 
-; After main, put exit code to H for now
+; After main, copy exit code to H to show on hex-display (but keep in A for autotest!)
 MOV A H
 
 HALT ; After execution, halt

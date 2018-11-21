@@ -165,7 +165,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 	}
 
 	// Handle calc parameters first to avoid glitches with scoped variable assignment later on
-	// Self-Recursive resolving will take care of the rest
+	// Self-recursive resolving will take care of the rest
 	processedCalc := false
 	for _, p := range cmd.params {
 		if p.asmParamType == asmParamTypeCalc {
@@ -201,14 +201,10 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 		switch p.asmParamType {
 		case asmParamTypeScopeVarCount:
 			p.asmParamType = asmParamTypeCalc
-			p.value = fmt.Sprintf("[%d]", len(state.variableMap[cmd.scope]))
+			p.value = fmt.Sprintf("[%d]", len(state.variableMap[p.value]))
 
 		// Variable/Global access
 		case asmParamTypeVarRead, asmParamTypeVarWrite, asmParamTypeGlobalRead, asmParamTypeGlobalWrite:
-
-			//if p.asmParamType == asmParamTypeGlobalRead {
-			//	fmt.Println("DEBUG")
-			//}
 
 			asmVar := getAsmVar(p.value, cmd.scope, state)
 
@@ -432,7 +428,7 @@ func varToHeap(v *asmVar, register string, state *asmTransformState, cmdScope st
 		STOR <register> G
 
 		; Global case
-		SETREG G <orderNumber alias address>
+		SETREG G <orderNumber aka address>
 		STOR <register> G
 	*/
 }

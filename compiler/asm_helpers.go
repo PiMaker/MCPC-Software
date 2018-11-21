@@ -12,7 +12,7 @@ func callFunc(funcName string, parameters []*RuntimeValue, state *asmTransformSt
 	retval := make([]*asmCmd, 0)
 
 	// Push parameters to stack in reverse order
-	for i := len(parameters) - 1; i >= 1; i-- {
+	for i := len(parameters) - 1; i >= 0; i-- {
 		paramAsAsmCalc := runtimeValueToAsmParam(parameters[i])
 		retval = append(retval, &asmCmd{
 			ins: "PUSH",
@@ -20,23 +20,6 @@ func callFunc(funcName string, parameters []*RuntimeValue, state *asmTransformSt
 				paramAsAsmCalc,
 			},
 		})
-	}
-
-	// Loop for legacy reasons
-	if len(parameters) > 0 {
-		for i := 0; i < 1; i++ {
-			paramAsAsm := runtimeValueToAsmParam(parameters[i])
-			retval = append(retval, &asmCmd{
-				ins: "MOV",
-				params: []*asmParam{
-					paramAsAsm,
-					&asmParam{
-						asmParamType: asmParamTypeRaw,
-						value:        "A",
-					},
-				},
-			})
-		}
 	}
 
 	retval = append(retval, &asmCmd{

@@ -6,6 +6,8 @@ import (
 
 type AST struct {
 	TopExpressions []*TopExpression `{ @@ }`
+
+	CommentHeaders []string
 }
 
 type TopExpression struct {

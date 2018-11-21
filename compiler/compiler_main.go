@@ -17,7 +17,7 @@ import (
 	"github.com/alecthomas/participle/lexer"
 )
 
-const CompilerVersion = "0.1.3"
+const CompilerVersion = "0.2.1"
 
 const LexerRegex = `(?s)(\s+)|` +
 	`(?P<Int>(?:0x)?\d+)|` +
@@ -28,6 +28,8 @@ const LexerRegex = `(?s)(\s+)|` +
 	`(?P<AssignmentOperator>\+\=|\-\=|\*\=|\/\=|\%\=|\=)|` +
 	`(?P<Operator>\=\=|\!\=|\<\=|\>\=|\<\<|\>\>|\+|\-|\<|\>|\*|\/|\%)|` +
 	`(?P<RawToken>\S)`
+
+var regexpAutotestHeader = regexp.MustCompile(`(?m)^;autotest\s+(.*?)$`)
 
 func Preprocess(inputFile, outputFile string) {
 	/*_, err := copy(inputFile, outputFile)
@@ -48,10 +50,10 @@ func Preprocess(inputFile, outputFile string) {
 		}
 	}
 
+	// Mostly for debugging at this point
 	if _, err := os.Stat("./gpp"); err == nil {
 		cmd = "./gpp"
 	}
-
 	if _, err := os.Stat(".\\gpp.exe"); err == nil {
 		cmd = ".\\gpp.exe"
 	}
@@ -75,27 +77,38 @@ func GenerateAST(inputFile string) *AST {
 	parser := participle.MustBuild(
 		ast,
 		participle.Lexer(lexer),
-		participle.Unquote(lexer, "String"),
-		participle.UseLookahead())
+		participle.Unquote("String"),
+		participle.UseLookahead(5))
 	fileContentsRaw, err := ioutil.ReadFile(inputFile)
 
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
 
+	astCommentHeader := make([]string, 0)
+
+	// Check for autotest header
+	autotestMatch := regexpAutotestHeader.FindAllStringSubmatch(string(fileContentsRaw), 1)
+	if autotestMatch != nil && len(autotestMatch) > 0 && len(autotestMatch[0]) > 1 {
+		astCommentHeader = []string{";autotest " + autotestMatch[0][1]}
+		log.Println("Autotest header found: " + astCommentHeader[0])
+
+		fileContentsRaw = fileContentsRaw[strings.Index(string(fileContentsRaw), "\n"):]
+	}
+
 	// Strip comments
 	fileContents := stripComments(string(fileContentsRaw))
 
-	// Handle character type
+	// Handle 'character' type as numbers directly
 	fileContents = handleCharacters(fileContents)
-
-	//fmt.Println(fileContents)
 
 	err = parser.ParseString(fileContents, ast)
 
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
+
+	ast.CommentHeaders = astCommentHeader
 
 	return ast
 }
