@@ -11,8 +11,8 @@ import (
 func callFunc(funcName string, parameters []*RuntimeValue, state *asmTransformState) []*asmCmd {
 	retval := make([]*asmCmd, 0)
 
-	// Push parameters to stack in reverse order
-	for i := len(parameters) - 1; i >= 0; i-- {
+	// Push parameters to stack
+	for i := 0; i < len(parameters); i++ {
 		paramAsAsmCalc := runtimeValueToAsmParam(parameters[i])
 		retval = append(retval, &asmCmd{
 			ins: "PUSH",
@@ -50,7 +50,7 @@ func callFunc(funcName string, parameters []*RuntimeValue, state *asmTransformSt
 		}
 
 		if function == "" {
-			log.Printf("WARNING: Cannot find function to call: Function '%s' with %d parameters\n", funcName, len(parameters))
+			log.Printf("WARNING: Cannot find function to call: Function '%s' with %d parameters (Assuming extern function)\n", funcName, len(parameters))
 			function = fLabel
 		}
 	}

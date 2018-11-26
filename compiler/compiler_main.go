@@ -108,6 +108,10 @@ func GenerateAST(inputFile string) *AST {
 		log.Fatalln(err.Error())
 	}
 
+	if ast == nil || ast.TopExpressions == nil || len(ast.TopExpressions) == 0 {
+		log.Fatalln("Empty AST parsed. Check your syntax!")
+	}
+
 	ast.CommentHeaders = astCommentHeader
 
 	return ast

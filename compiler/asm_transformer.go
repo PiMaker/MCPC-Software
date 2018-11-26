@@ -34,6 +34,8 @@ type asmCmd struct {
 
 	comment     string
 	printIndent int
+
+	originalAsmCmdString string
 }
 
 type asmParam struct {
@@ -102,8 +104,8 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 			},
 		})
 
-		// Read parameters from stack
-		for i := 0; i < len(astNode.Parameters); i++ {
+		// Read parameters from stack (in reverse order)
+		for i := len(astNode.Parameters) - 1; i >= 0; i-- {
 			// varFromStack scopes automatically (via asmParamTypeVarWrite)
 			newAsm = append(newAsm, varFromStack(astNode.Parameters[i], state)...)
 			addVariable(astNode.Parameters[i], state)
@@ -231,19 +233,49 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 		state.printIndent++
 
 	case *WhileLoop:
+		// Flush scope now to start loop "clean"
 		newAsm = append(newAsm, &asmCmd{
-			ins: fmt.Sprintf(".%s JMPEZ", getWhileLoopLabelStart(*astNode)),
+			ins:   "__FLUSHSCOPE",
+			scope: state.currentFunction,
+		})
+
+		newAsm = append(newAsm, &asmCmd{
+			ins:   "__CLEARSCOPE",
+			scope: state.currentFunction,
+		})
+
+		// Add start label as __LABEL_SET to accomodate calc parameter expansion
+		newAsm = append(newAsm, &asmCmd{
+			ins: "." + getWhileLoopLabelStart(*astNode) + " __LABEL_SET",
+		})
+
+		// Move conditional value to F, since G might be used by __FLUSHSCOPE (and we're guaranteed not to have any calcs in there)
+		newAsm = append(newAsm, &asmCmd{
+			ins: "MOV",
+			params: []*asmParam{
+				&asmParam{
+					asmParamType: asmParamTypeCalc,
+					value:        astNode.Condition,
+				},
+				&asmParam{
+					asmParamType: asmParamTypeRaw,
+					value:        "F",
+				},
+			},
+		})
+
+		newAsm = append(newAsm, &asmCmd{
+			ins: "JMPEZ",
 			params: []*asmParam{
 				&asmParam{
 					asmParamType: asmParamTypeRaw,
 					value:        "." + getWhileLoopLabelEnd(*astNode),
 				},
 				&asmParam{
-					asmParamType: asmParamTypeCalc,
-					value:        astNode.Condition,
+					asmParamType: asmParamTypeRaw,
+					value:        "F",
 				},
 			},
-			printIndent: -1,
 		})
 
 		state.printIndent++
@@ -420,12 +452,20 @@ func asmForNodePost(nodeInterface interface{}, state *asmTransformState) []*asmC
 
 		return []*asmCmd{
 			&asmCmd{
+				ins:   "__FLUSHSCOPE",
+				scope: state.currentFunction,
+			},
+			&asmCmd{
 				ins:         fmt.Sprintf("JMP .%s", getWhileLoopLabelStart(*node)),
 				printIndent: state.printIndent + 1,
 			},
 			&asmCmd{
 				ins:         fmt.Sprintf(".%s __LABEL_SET", getWhileLoopLabelEnd(*node)),
 				printIndent: state.printIndent + 1,
+			},
+			&asmCmd{
+				ins:   "__CLEARSCOPE",
+				scope: state.currentFunction,
 			},
 		}
 	}

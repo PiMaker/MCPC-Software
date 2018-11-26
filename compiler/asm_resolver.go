@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"github.com/logrusorgru/aurora"
 	"log"
 	"strconv"
 	"strings"
@@ -93,7 +94,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 					return output
 				}
 
-				// Variable present, but in wrong register
+				// Variable present, but in wrong register - check target register
 				otherName := getNameForRegister(cmd.scopeAnnotationRegister, state)
 				if otherName == nil {
 					//log.Println("ERROR: No name found for register: " + toReg(cmd.scopeAnnotationRegister))
@@ -184,7 +185,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 		}
 	}
 
-	// Calc found - exit early
+	// Calc found - exit early, recursive resolving will save the day as always
 	if processedCalc {
 		// Special case of SETREG which doesn't accept registers, but could be used to set a "calc literal" to a register
 		if cmd.ins == "SETREG" {
@@ -214,6 +215,8 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 				if varName == asmVar.name {
 					// Found
 					p.value = toReg(varReg)
+
+					cmd.comment += fmt.Sprintf(" (reg_alloc: var found checked out in %d)", varReg)
 
 					// Mark dirty on write
 					state.scopeRegisterDirty[varReg] = p.asmParamType == asmParamTypeVarWrite || p.asmParamType == asmParamTypeGlobalWrite
@@ -248,9 +251,18 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 				}
 
 				output = append(output, varToHeap(getAsmVar(*nameForReg, cmd.scope, state), toReg(reg), state, cmd.scope)...)
+			}
 
-				// Update state for consistency
-				delete(state.scopeRegisterAssignment, *nameForReg)
+			// Check if anything was checked out into the assigned register beforehand, and if so, remove it from the assignment map
+			toRemove := make([]string, 0)
+			for otherVar, otherReg := range state.scopeRegisterAssignment {
+				if otherReg == reg {
+					toRemove = append(toRemove, otherVar)
+				}
+			}
+
+			for _, tr := range toRemove {
+				delete(state.scopeRegisterAssignment, tr)
 			}
 
 			// Set dirty on write
@@ -273,7 +285,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 			p.value = strconv.Itoa(state.stringMap[p.value])
 
 		case asmParamTypeCalc:
-			log.Fatalln("ERROR: Calc parameter was not resolved. This is most likely a compiler error.")
+			log.Fatalln("ERROR: Calc parameter was not resolved early. This is most likely a compiler error.")
 		}
 	}
 
@@ -586,7 +598,11 @@ func (cmd *asmCmd) asmString() string {
 
 // Debug information for an asmCmd in pre-formatted string form
 func (cmd *asmCmd) String() string {
-	retval := cmd.ins
+	return cmd.StringWithIndent(0)
+}
+
+func (cmd *asmCmd) StringWithIndent(i int) string {
+	retval := aurora.Blue(cmd.ins).String()
 
 	if cmd.params != nil && len(cmd.params) > 0 {
 		for _, p := range cmd.params {
@@ -607,20 +623,29 @@ func (cmd *asmCmd) String() string {
 			case asmParamTypeStringRead:
 				formatted = fmt.Sprintf("s(%s,r,addr=%d)", formatted, p.addrCache)
 			}
-			retval += " " + formatted
+
+			if p.asmParamType == asmParamTypeRaw {
+				retval += " " + aurora.Red(formatted).String()
+			} else {
+				retval += " " + aurora.Magenta(formatted).String()
+			}
 		}
 	}
 
 	if cmd.ins == "__ASSUMESCOPE" || cmd.ins == "__FORCESCOPE" {
-		retval += fmt.Sprintf(" {var: %s, reg: %d}", cmd.scopeAnnotationName, cmd.scopeAnnotationRegister)
+		retval += aurora.Brown(fmt.Sprintf(" {var: %s, reg: %d}", cmd.scopeAnnotationName, cmd.scopeAnnotationRegister)).String()
 	}
 
 	if cmd.comment != "" {
-		retval += fmt.Sprintf(" ;%s", cmd.comment)
+		retval += aurora.Green(fmt.Sprintf(" ;%s", cmd.comment)).String()
 	}
 
 	for ind := 0; ind < cmd.printIndent; ind++ {
 		retval = "  " + retval
+	}
+
+	for ind := 0; ind < i; ind++ {
+		retval = "    " + retval
 	}
 
 	return retval

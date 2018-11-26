@@ -15,7 +15,7 @@ import (
 )
 
 const CalcTypeRegexLiteral = `^(?:0x)?\d+$`
-const CalcTypeRegexMath = `^(?:\=\=|\!\=|\<\=|\>\=|\<\<|\>\>|\+|\-|\<|\>|\*|\/|\%|\(|\)|\s|[a-zA-Z0-9_])*$`
+const CalcTypeRegexMath = `^(?:\=\=|\!\=|\<\=|\>\=|\<\<|\>\>|\+|\-|\<|\>|\*|\/|\%|\(|\)|\s|,|\~|[a-zA-Z0-9_])*$`
 
 var calcTypeRegexLiteralRegexp = regexp.MustCompile(CalcTypeRegexLiteral)
 var calcTypeRegexMathRegexp = regexp.MustCompile(CalcTypeRegexMath)
@@ -40,20 +40,24 @@ func resolveCalc(calc string, scope string, state *asmTransformState) []*asmCmd 
 
 		// Function call temp vars
 		var funcFunct string
-		var funcFunarg int
+		funcStackOffset := 0
+		var funcFunargLast int
 
 		for _, token := range shunted {
 			switch token.tokenType {
 			case "FUNCT":
 				funcFunct = token.value
 			case "FUNARG":
-				funcFunarg, _ = strconv.Atoi(token.value)
+				funcFunarg, _ := strconv.Atoi(token.value)
+				// Offset pop count because called function will pop values from stack for us
+				funcStackOffset -= funcFunarg
+				funcFunargLast = funcFunarg
 
 			case "SYS":
 				switch token.value {
 				case "INVOKE":
 					// Call function and push return value to stack
-					log.Println("Would call function: " + funcFunct + " with param count: " + strconv.Itoa(funcFunarg))
+					output = append(output, callCalcFunc(funcFunct, funcFunargLast, state)...)
 				}
 
 			case "OPRND":
@@ -75,7 +79,6 @@ func resolveCalc(calc string, scope string, state *asmTransformState) []*asmCmd 
 							},
 						},
 						comment: " CALC: var " + token.value,
-						scope:   scope,
 					}
 
 					// Take care of globals and string addresses
@@ -94,12 +97,11 @@ func resolveCalc(calc string, scope string, state *asmTransformState) []*asmCmd 
 						},
 					},
 					comment: " CALC: push operand",
-					scope:   scope,
 				})
 
 			case "OPER":
 				switch token.value {
-				case "+", "*", "-", "&", "|", "^":
+				case "+", "*", "-", "&", "|", "^", "==", "<", ">", "<=", ">=", "!=":
 					// Pop twice then calculate then push again
 					output = append(output, &asmCmd{
 						ins: "POP",
@@ -120,8 +122,9 @@ func resolveCalc(calc string, scope string, state *asmTransformState) []*asmCmd 
 						},
 					})
 
+					aluIns := symbolToALUFuncName(token.value)
 					output = append(output, &asmCmd{
-						ins: symbolToALUFuncName(token.value),
+						ins: aluIns,
 						params: []*asmParam{
 							&asmParam{
 								asmParamType: asmParamTypeRaw,
@@ -134,6 +137,47 @@ func resolveCalc(calc string, scope string, state *asmTransformState) []*asmCmd 
 							&asmParam{
 								asmParamType: asmParamTypeRaw,
 								value:        "E", // Input 2
+							},
+						},
+						comment: " CALC: operator " + aluIns,
+					})
+
+					output = append(output, &asmCmd{
+						ins: "PUSH",
+						params: []*asmParam{
+							&asmParam{
+								asmParamType: asmParamTypeRaw,
+								value:        "F",
+							},
+						},
+					})
+
+				case ".-", ".~", "~":
+					output = append(output, &asmCmd{
+						ins: "POP",
+						params: []*asmParam{
+							&asmParam{
+								asmParamType: asmParamTypeRaw,
+								value:        "F",
+							},
+						},
+					})
+
+					aluIns := "COM"
+					if token.value == ".-" {
+						aluIns = "NEG"
+					}
+
+					output = append(output, &asmCmd{
+						ins: aluIns,
+						params: []*asmParam{
+							&asmParam{
+								asmParamType: asmParamTypeRaw,
+								value:        "F",
+							},
+							&asmParam{
+								asmParamType: asmParamTypeRaw,
+								value:        "F",
 							},
 						},
 					})
@@ -174,9 +218,17 @@ func resolveCalc(calc string, scope string, state *asmTransformState) []*asmCmd 
 			}
 		}
 
+		// Function calls modify the stack without push-es or pop-s
+		stackValue += funcStackOffset
+
 		if stackValue != 0 {
 			spew.Dump(shunted)
 			log.Fatalln("ERROR: Calc instruction produced invalid stack. This is *probably* a compiler bug. (Stack value: " + strconv.Itoa(stackValue) + ")")
+		}
+
+		// Set scope of "parent" (calc instruction) on all generated "child" instructions
+		for _, a := range output {
+			a.scope = scope
 		}
 
 		// Shortcut: If last two instructions are "PUSH F", "POP F", leaving them out will still put result in F
@@ -208,6 +260,18 @@ func symbolToALUFuncName(oper string) string {
 		return "AND"
 	case "|":
 		return "OR"
+	case "==":
+		return "EQ"
+	case "!=":
+		return "NEQ"
+	case ">":
+		return "GT"
+	case "<":
+		return "LT"
+	case "<=":
+		return "LTOE"
+	case ">=":
+		return "GTOE"
 	default:
 		log.Fatalln("ERROR: Unsupported operator in calc instruction: " + oper)
 		return ""
@@ -241,6 +305,66 @@ func setRegToLiteralFromString(calc, reg string) []*asmCmd {
 	}
 }
 
+func callCalcFunc(funcName string, paramCount int, state *asmTransformState) []*asmCmd {
+	retval := make([]*asmCmd, 0)
+
+	// Scope handling should still work in calc context, recursive resolving is really quite something huh?
+	retval = append(retval, &asmCmd{
+		ins: "__FLUSHSCOPE",
+	})
+
+	retval = append(retval, &asmCmd{
+		ins: "__CLEARSCOPE",
+	})
+
+	fLabel := getFuncLabelSpecific(funcName, paramCount)
+	function := ""
+	for _, varFunc := range state.functionTableVar {
+		if varFunc == fLabel {
+			function = varFunc
+			break
+		}
+	}
+
+	if function == "" {
+		for _, voidFunc := range state.functionTableVoid {
+			if voidFunc == fLabel {
+				log.Fatalf("ERROR: Tried calling a void function in a calc context: Function '%s' with %d parameters\n", funcName, paramCount)
+			}
+		}
+
+		if function == "" {
+			log.Printf("WARNING: Cannot find function to call (calc): Function '%s' with %d parameters (Assuming extern function)\n", funcName, paramCount)
+			function = fLabel
+		}
+	}
+
+	retval = append(retval, &asmCmd{
+		ins: "CALL",
+		params: []*asmParam{
+			&asmParam{
+				asmParamType: asmParamTypeRaw,
+				value:        "." + function,
+			},
+		},
+	})
+
+	// Push returned value to stack for further calculations
+	retval = append(retval, &asmCmd{
+		ins: "PUSH",
+		params: []*asmParam{
+			&asmParam{
+				asmParamType: asmParamTypeRaw,
+				value:        "A",
+			},
+		},
+	})
+
+	return append(retval, &asmCmd{
+		ins: "__CLEARSCOPE",
+	})
+}
+
 var parserExtracted = false
 var dijkstraPath = ""
 
@@ -272,11 +396,22 @@ func callShuntingYardParser(calc string) []*YardToken {
 
 	err := cmd.Run()
 
+	output := string(out.Bytes())
+
 	if err != nil {
-		log.Println("DEBUG LOG OF SHUNTING YARD PARSER ATTACHED:")
-		fmt.Println(string(out.Bytes()))
+		log.Println("Debug log of shunt.sh:")
+		fmt.Println(output)
 
 		log.Fatalln("ERROR: While executing shunting yard parser: " + err.Error())
+	}
+
+	// Check for error output
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, shuntSplit+"error") {
+			log.Println("ERROR: Shunting yard parser encountered an error on a calc expression:")
+			log.Println("Calc: " + calc)
+			log.Fatalln("Error: " + line)
+		}
 	}
 
 	return parseIntoYardTokens(string(out.Bytes()))

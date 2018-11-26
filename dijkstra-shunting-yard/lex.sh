@@ -135,13 +135,13 @@ while read -r charpair; do
 	#------------------------------------------------------------------
 	#handle unary plus/minus
 	#------------------------------------------------------------------
-	if [[ "$charcount" -eq 1 && ( "$char" == "+" || "$char" == "-") ]] ; then
+	if [[ "$charcount" -eq 1 && ( "$char" == "+" || "$char" == "-" || "$char" == "~") ]] ; then
 		buffer="${UNARY}$char"
 		buffer_output "${STATE}"
 		continue
 	fi	
 
-	if [[ "${STATE}" == "${STATE_BRACKET_LEFT}" && ( "${char2}" == "+" || "${char2}" == "-") ]] ; then
+	if [[ "${STATE}" == "${STATE_BRACKET_LEFT}" && ( "${char2}" == "+" || "${char2}" == "-" || "${char2}" == "~") ]] ; then
 		buffer="$char"
 		buffer_output "${STATE_BRACKET_LEFT}"
 		buffer="${UNARY}${char2}"
@@ -210,7 +210,7 @@ while read -r charpair; do
 	if [ "${STATE}" == "${STATE_OPERATOR}" ] ; then
 		charpair2="${char}${char2}"
 		case "${charpair2}" in
-			'&&' | '||' | '<=' | '>=' | '==' | '<<' | '>>') 
+			"!=" | '&&' | '||' | '<=' | '>=' | '==' | '<<' | '>>')
 				buffer="${charpair2}"; 
 				read -r charpair #drop next char
 				;;

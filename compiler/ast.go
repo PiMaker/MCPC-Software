@@ -186,14 +186,14 @@ func (ast *AST) GenerateASM(bootloader bool) string {
 		},
 	}, asm...)
 
-	// Fix up global and string references
+	// Fix global and string references
 	// Necessary, because identifiers are by default auto-assigned to var param types
 	for _, a := range asm {
 		a.fixGlobalAndStringParamTypes(transformState)
 
 		// DEBUG
-		// TODO/FIXME: Remove
 		//fmt.Println(a.String())
+		a.originalAsmCmdString = a.String()
 	}
 
 	// Generate ASM
@@ -208,6 +208,18 @@ func (ast *AST) GenerateASM(bootloader bool) string {
 
 	if !isResolved(asm) {
 		log.Fatalln("ERROR: Meta-ASM has not been fully resolved. This is a compiler bug, sorry.")
+	}
+
+	// DEBUG OUTPUT
+	var prevOrigAsmCmd string
+	for _, a := range asm {
+		if prevOrigAsmCmd != a.originalAsmCmdString && a.originalAsmCmdString != "" {
+			toPrint := strings.TrimSpace(strings.Replace(a.originalAsmCmdString, "\n", "", -1))
+			fmt.Println("\nmeta " + toPrint)
+			prevOrigAsmCmd = a.originalAsmCmdString
+		}
+
+		fmt.Println("out  " + strings.TrimSpace(a.String()))
 	}
 
 	// Print asm to string and check for warnings in compiled code
@@ -258,7 +270,7 @@ func resolveMetaAsm(asm []*asmCmd, initAsm []*asmCmd, transformState *asmTransfo
 			}
 
 			if prevCmdCounter > 100 {
-				log.Fatalln("ERROR: Recursive resolving detected. This is a compiler bug, sorry. Instruction: " + prevCmd.String())
+				log.Fatalln("ERROR: Recursive resolving detected (> 100 steps). This is a compiler bug, sorry. Instruction: " + prevCmd.String())
 			}
 		} else {
 			prevCmdCounter = 0
@@ -268,6 +280,11 @@ func resolveMetaAsm(asm []*asmCmd, initAsm []*asmCmd, transformState *asmTransfo
 		prevCmdCounter++
 
 		resolved := asm[i].resolve(initAsm, transformState)
+
+		for ir := range resolved {
+			resolved[ir].originalAsmCmdString = asm[i].originalAsmCmdString
+		}
+
 		if len(resolved) == 0 {
 			// Cut out value if nothing has been returned
 			asm = append(asm[0:i], asm[(i+1):len(asm)]...)

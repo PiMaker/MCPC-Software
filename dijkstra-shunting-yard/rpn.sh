@@ -135,9 +135,9 @@ area="get_precedence"
 			"(") return 10 ;;
 			",") return 20 ;;
 			"=") return 30 ;;
-			"==") return 40 ;;
-			"-" | "+") return 50 ;;
-			".-" | ".+") return 60 ;;
+			"!=" | "==" | "<=" | ">=" | "<" | ">") return 40 ;;
+			"-" | "+" | "~") return 50 ;;
+			".-" | ".+" | ".~") return 60 ;;
 			"*" | '/' | "%") return 70 ;;
 			"^") return 80 ;;
 			"->") return 90 ;;
