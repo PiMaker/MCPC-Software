@@ -2,40 +2,66 @@ package compiler
 
 import (
 	"fmt"
+	"github.com/logrusorgru/aurora"
 	"log"
 	"reflect"
 	"strings"
 	"unicode"
 )
 
-func (ast *AST) GenerateASM(bootloader bool) string {
+func (ast *AST) GenerateASM(bootloader, verbose bool) string {
 
 	if bootloader {
 		log.Println("! Using bootloader mode !")
 	}
 
+	// DEBUG
+	if verbose {
+		log.Println("DEBUG OUTPUT (AST):")
+		fmt.Println(aurora.Cyan("*AST"))
+		printBody := false
+		walkInterface(ast, func(val reflect.Value, name string, depth int) {
+			if name != "Pos" && name != "Filename" && name != "Offset" && name != "Line" && name != "Column" {
+				if name == "Body" {
+					if !printBody {
+						return
+					}
+
+					printBody = false
+				}
+
+				for i := 0; i < depth+1; i++ {
+					fmt.Print("  ")
+				}
+				fmt.Print(aurora.Cyan(name).String())
+
+				for val.Kind() == reflect.Ptr {
+					val = val.Elem()
+				}
+
+				if val.Kind() == reflect.Struct {
+					fmt.Println()
+
+					// Func entry detection
+					if val.Type().Name() == "Function" {
+						printBody = true
+					}
+
+				} else if val.Kind() == reflect.Int {
+					fmt.Print(": ")
+					fmt.Println(val.Int())
+				} else if val.Kind() == reflect.Bool {
+					fmt.Print(": ")
+					fmt.Println(val.Bool())
+				} else {
+					fmt.Print(": ")
+					fmt.Println(val.String())
+				}
+			}
+		}, nil, 0)
+	}
+
 	log.Println("Validating source...")
-
-	/*fmt.Println("AST:")
-	walkInterface(ast, func(val reflect.Value, name string, depth int) {
-		for i := 0; i < depth+1; i++ {
-			fmt.Print("  ")
-		}
-		fmt.Print(name)
-
-		if val.Kind() == reflect.Struct {
-			fmt.Println()
-		} else if val.Kind() == reflect.Int {
-			fmt.Print(" = ")
-			fmt.Println(val.Int())
-		} else if val.Kind() == reflect.Bool {
-			fmt.Print(" = ")
-			fmt.Println(val.Bool())
-		} else {
-			fmt.Print(" = ")
-			fmt.Println(val.String())
-		}
-	}, nil, 0)*/
 
 	asm := make([]*asmCmd, 0)
 
@@ -190,9 +216,6 @@ func (ast *AST) GenerateASM(bootloader bool) string {
 	// Necessary, because identifiers are by default auto-assigned to var param types
 	for _, a := range asm {
 		a.fixGlobalAndStringParamTypes(transformState)
-
-		// DEBUG
-		//fmt.Println(a.String())
 		a.originalAsmCmdString = a.String()
 	}
 
@@ -210,16 +233,19 @@ func (ast *AST) GenerateASM(bootloader bool) string {
 		log.Fatalln("ERROR: Meta-ASM has not been fully resolved. This is a compiler bug, sorry.")
 	}
 
-	// DEBUG OUTPUT
-	var prevOrigAsmCmd string
-	for _, a := range asm {
-		if prevOrigAsmCmd != a.originalAsmCmdString && a.originalAsmCmdString != "" {
-			toPrint := strings.TrimSpace(strings.Replace(a.originalAsmCmdString, "\n", "", -1))
-			fmt.Println("\nmeta " + toPrint)
-			prevOrigAsmCmd = a.originalAsmCmdString
-		}
+	// DEBUG
+	if verbose {
+		log.Println("DEBUG OUTPUT (ASM):")
+		var prevOrigAsmCmd string
+		for _, a := range asm {
+			if prevOrigAsmCmd != a.originalAsmCmdString && a.originalAsmCmdString != "" {
+				toPrint := strings.TrimSpace(strings.Replace(a.originalAsmCmdString, "\n", "", -1))
+				fmt.Println("\nmeta " + toPrint)
+				prevOrigAsmCmd = a.originalAsmCmdString
+			}
 
-		fmt.Println("out  " + strings.TrimSpace(a.String()))
+			fmt.Println("out  " + strings.TrimSpace(a.String()))
+		}
 	}
 
 	// Print asm to string and check for warnings in compiled code
