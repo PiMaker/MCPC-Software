@@ -38,7 +38,11 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 				for varName, varReg := range state.scopeRegisterAssignment {
 					if i == varReg {
 						// Match for dirty var and corresponding register, save to heap
-						output = append(output, varToHeap(getAsmVar(varName, cmd.scope, state), toReg(i), state, cmd.scope)...)
+						toAppend := varToHeap(getAsmVar(varName, cmd.scope, state), toReg(i), state, cmd.scope)
+						for _, a := range toAppend {
+							a.comment = fmt.Sprintf(" __FLUSHSCOPE (flushing: %s)", varName)
+						}
+						output = append(output, toAppend...)
 					}
 				}
 			}
@@ -196,7 +200,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 		return append(output, cmd)
 	}
 
-	// Parameter translation (meta asm->real asm)
+	// Parameter translation (meta asm (variables/calc expressions)->real asm (registers/literals))
 	cmdAssignedRegisters := make([]int, 0)
 	for _, p := range cmd.params {
 		switch p.asmParamType {
@@ -219,7 +223,9 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 					cmd.comment += fmt.Sprintf(" (reg_alloc: var found checked out in %d)", varReg)
 
 					// Mark dirty on write
-					state.scopeRegisterDirty[varReg] = p.asmParamType == asmParamTypeVarWrite || p.asmParamType == asmParamTypeGlobalWrite
+					if p.asmParamType == asmParamTypeVarWrite || p.asmParamType == asmParamTypeGlobalWrite {
+						state.scopeRegisterDirty[varReg] = true
+					}
 
 					found = true
 				}
@@ -231,12 +237,28 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 			}
 
 			// Assign register to variable
+			// TODO (maybe): Analyze which register has been checked out the longest ago and use that?
 			reg := asmVar.orderNumber % AssigneableRegisters
-			startReg := reg
-			for containsInt(cmdAssignedRegisters, reg) {
-				reg = (reg + 1) % AssigneableRegisters
-				if reg == startReg {
-					log.Fatalf("ERROR: Variable<>Register assignment failure; Internal error, too many variables attached to one meta-asm command. In scope: %s\n", cmd.scope)
+
+			// First, check if we have a random free register available
+			freeAssigned := false
+			for regNum := 0; regNum < AssigneableRegisters; regNum++ {
+				if !containsInt(cmdAssignedRegisters, regNum) {
+					if dirty, ok := state.scopeRegisterDirty[regNum]; !ok || !dirty {
+						reg = regNum
+						freeAssigned = true
+					}
+				}
+			}
+
+			if !freeAssigned {
+				// Otherwise, select candidate for eviction
+				startReg := reg
+				for containsInt(cmdAssignedRegisters, reg) {
+					reg = (reg + 1) % AssigneableRegisters
+					if reg == startReg {
+						log.Fatalf("ERROR: Variable<>Register assignment failure; Internal error, too many variables attached to one meta-asm command. In scope: %s\n", cmd.scope)
+					}
 				}
 			}
 
@@ -266,7 +288,15 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 			}
 
 			// Set dirty on write
-			state.scopeRegisterDirty[reg] = p.asmParamType == asmParamTypeVarWrite || p.asmParamType == asmParamTypeGlobalWrite
+			if p.asmParamType == asmParamTypeVarWrite || p.asmParamType == asmParamTypeGlobalWrite {
+				state.scopeRegisterDirty[reg] = true
+			}
+
+			if state.scopeRegisterDirty[reg] {
+				cmd.comment += fmt.Sprintf(" (reg_alloc: checked out as dirty)")
+			} else {
+				cmd.comment += fmt.Sprintf(" (reg_alloc: checked out as clean)")
+			}
 
 			// Load value (only on read, on write it will be overwritten anyway)
 			if p.asmParamType == asmParamTypeVarRead || p.asmParamType == asmParamTypeGlobalRead {
@@ -289,7 +319,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 		}
 	}
 
-	// Note to self: Any change above here but below for loop should be reflected in early exits as well (especially calc early-out)
+	// Note to self: Any change above here but below for-loop should be reflected in early exits as well (especially calc early-out)
 	return append(output, cmd)
 }
 
@@ -333,7 +363,7 @@ func getAsmVar(name string, scope string, state *asmTransformState) *asmVar {
 		// Search for global if locally scoped variabled couldn't be found
 		// This is safe, because it is guaranteed at this stage that no variable can be named the same as any given global
 		for gname, addr := range state.globalMemoryMap {
-			if gname == name {
+			if gname == "global_"+name {
 				avar = &asmVar{
 					name:        name,
 					orderNumber: addr,
@@ -542,7 +572,7 @@ func (cmd *asmCmd) fixGlobalAndStringParamTypes(state *asmTransformState) {
 		for _, p := range cmd.params {
 			if p.asmParamType == asmParamTypeVarRead {
 				for global, addr := range state.globalMemoryMap {
-					if global == p.value {
+					if global == "global_"+p.value {
 						p.asmParamType = asmParamTypeGlobalRead
 						p.addrCache = addr
 						break
@@ -550,7 +580,7 @@ func (cmd *asmCmd) fixGlobalAndStringParamTypes(state *asmTransformState) {
 				}
 
 				for str, addr := range state.stringMap {
-					if str == p.value {
+					if str == "global_"+p.value {
 						p.asmParamType = asmParamTypeStringRead
 						p.addrCache = addr
 						break
@@ -558,7 +588,7 @@ func (cmd *asmCmd) fixGlobalAndStringParamTypes(state *asmTransformState) {
 				}
 			} else if p.asmParamType == asmParamTypeVarWrite {
 				for global, addr := range state.globalMemoryMap {
-					if global == p.value {
+					if global == "global_"+p.value {
 						p.asmParamType = asmParamTypeGlobalWrite
 						p.addrCache = addr
 						break

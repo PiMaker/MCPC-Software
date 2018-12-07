@@ -4,14 +4,9 @@ import (
 	"fmt"
 	"log"
 	"reflect"
-	"regexp"
-	"strings"
 
 	"github.com/alecthomas/participle/lexer"
 )
-
-var regexpAsmExtract = regexp.MustCompile(`(?s)_asm\s*\{(.*?)\}`)
-var regexpAsmExtractCmds = regexp.MustCompile(`\s*(\S+)\s*`)
 
 const asmParamTypeRaw = 0
 const asmParamTypeVarRead = 1
@@ -161,7 +156,7 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 		var newData []int16
 		if astNode.Value != nil && astNode.Value.Text != nil {
 			// String global
-			state.stringMap[astNode.Name] = state.maxDataAddr
+			state.stringMap["global_"+astNode.Name] = state.maxDataAddr
 
 			newData = make([]int16, len(*astNode.Value.Text)+1)
 			for i, c := range *astNode.Value.Text {
@@ -177,7 +172,7 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 				val = *astNode.Value.Number
 			}
 
-			state.globalMemoryMap[astNode.Name] = state.maxDataAddr
+			state.globalMemoryMap["global_"+astNode.Name] = state.maxDataAddr
 			newData = []int16{int16(val)}
 		}
 
@@ -318,28 +313,7 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 	case *Expression:
 		// Raw ASM
 		if astNode.Asm != nil {
-			extractedAsm := strings.Split(regexpAsmExtract.FindAllStringSubmatch(*astNode.Asm, -1)[0][1], "\n")
-			for _, line := range extractedAsm {
-				lineCmdMatches := regexpAsmExtractCmds.FindAllStringSubmatch(line, -1)
-				if len(lineCmdMatches) == 0 {
-					continue
-				}
-
-				newAsm = append(newAsm, &asmCmd{
-					ins:    lineCmdMatches[0][1],
-					params: make([]*asmParam, 0),
-				})
-				for i, cmd := range lineCmdMatches {
-					if i == 0 {
-						continue
-					}
-
-					newAsm[len(newAsm)-1].params = append(newAsm[0].params, &asmParam{
-						value:        cmd[1],
-						asmParamType: asmParamTypeRaw,
-					})
-				}
-			}
+			newAsm = append(newAsm, toRawAsm(*astNode.Asm)...)
 		} else if astNode.Return != nil {
 			// Return (TODO: Maybe handle void functions differently?)
 			newAsm = append(newAsm, &asmCmd{

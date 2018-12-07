@@ -3,10 +3,43 @@ package compiler
 import (
 	"fmt"
 	"log"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/alecthomas/participle/lexer"
 )
+
+var regexpAsmExtract = regexp.MustCompile(`(?s)_asm\s*\{(.*?)\}`)
+var regexpAsmExtractCmds = regexp.MustCompile(`\s*(\S+)\s*`)
+
+func toRawAsm(asm string) []*asmCmd {
+	newAsm := make([]*asmCmd, 0)
+	extractedAsm := strings.Split(regexpAsmExtract.FindAllStringSubmatch(asm, -1)[0][1], "\n")
+	for _, line := range extractedAsm {
+		lineCmdMatches := regexpAsmExtractCmds.FindAllStringSubmatch(line, -1)
+		if len(lineCmdMatches) == 0 {
+			continue
+		}
+
+		newAsm = append(newAsm, &asmCmd{
+			ins:    lineCmdMatches[0][1],
+			params: make([]*asmParam, 0),
+		})
+		for i, cmd := range lineCmdMatches {
+			if i == 0 {
+				continue
+			}
+
+			newAsm[len(newAsm)-1].params = append(newAsm[len(newAsm)-1].params, &asmParam{
+				value:        cmd[1],
+				asmParamType: asmParamTypeRaw,
+			})
+		}
+	}
+
+	return newAsm
+}
 
 func callFunc(funcName string, parameters []*RuntimeValue, state *asmTransformState) []*asmCmd {
 	retval := make([]*asmCmd, 0)
@@ -228,14 +261,21 @@ func addVariable(varName string, state *asmTransformState) {
 			}
 		}
 
-		for g := range state.globalMemoryMap {
-			if g == varName {
+		/*for g := range state.globalMemoryMap {
+			if g[len("global_"):] == varName {
 				log.Fatalf("ERROR: Redefinition of global as variable '%s' in scope '%s'", varName, state.currentFunction)
 			}
-		}
+		}*/
 
 		state.variableMap[state.currentFunction] = append(scopeSlice, *newVar)
 	} else {
+
+		/*for g := range state.globalMemoryMap {
+			if g[len("global_"):] == varName {
+				log.Fatalf("ERROR: Redefinition of global as variable '%s' in scope '%s'", varName, state.currentFunction)
+			}
+		}*/
+
 		state.variableMap[state.currentFunction] = []asmVar{
 			asmVar{
 				name:        varName,

@@ -16,9 +16,11 @@ import (
 
 const CalcTypeRegexLiteral = `^(?:0x)?\d+$`
 const CalcTypeRegexMath = `^(?:\=\=|\!\=|\<\=|\>\=|\<\<|\>\>|\+|\-|\<|\>|\*|\/|\%|\(|\)|\s|,|\~|[a-zA-Z0-9_])*$`
+const CalcTypeRegexAsm = `^asm\s*\{.*?\}$`
 
 var calcTypeRegexLiteralRegexp = regexp.MustCompile(CalcTypeRegexLiteral)
 var calcTypeRegexMathRegexp = regexp.MustCompile(CalcTypeRegexMath)
+var calcTypeRegexAsmRegexp = regexp.MustCompile(CalcTypeRegexAsm)
 
 func resolveCalc(calc string, scope string, state *asmTransformState) []*asmCmd {
 	// Remove square brackets, they are just indicators that this is a calc value string
@@ -27,7 +29,13 @@ func resolveCalc(calc string, scope string, state *asmTransformState) []*asmCmd 
 	calc = strings.Trim(calc, " \t")
 
 	// Match type of expression using regex
-	if calcTypeRegexLiteralRegexp.MatchString(calc) {
+	if calcTypeRegexAsmRegexp.MatchString(calc) {
+
+		// Assume developer knows what they are doing
+		// Put asm verbosely and hope if fills up F
+		return toRawAsm("_" + calc) // Note: underscore (_) is not in calc, to not confuse the parser
+
+	} else if calcTypeRegexLiteralRegexp.MatchString(calc) {
 
 		return setRegToLiteralFromString(calc, "F") // F is calc out register
 

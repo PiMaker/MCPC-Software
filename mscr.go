@@ -10,11 +10,19 @@ import (
 	"github.com/PiMaker/mscr/compiler"
 )
 
+const LicenseNotice string = `
+Copyright (C) 2018  Stefan Reiter (pimaker.at)
+This program comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under certain conditions.
+See https://github.com/PiMaker/mscr/blob/master/LICENSE for more.`
+
 func main() {
 	inputFile, outputFile, bootloader, verbose, version := processArgs()
 
 	if version {
 		fmt.Println("M-Script compiler v" + compiler.CompilerVersion)
+		fmt.Println(LicenseNotice)
 		return
 	}
 
