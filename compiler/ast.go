@@ -2,11 +2,12 @@ package compiler
 
 import (
 	"fmt"
-	"github.com/logrusorgru/aurora"
 	"log"
 	"reflect"
 	"strings"
 	"unicode"
+
+	"github.com/logrusorgru/aurora"
 )
 
 func (ast *AST) GenerateASM(bootloader, verbose bool) string {
@@ -127,7 +128,7 @@ func (ast *AST) GenerateASM(bootloader, verbose bool) string {
 
 		globalMemoryMap: make(map[string]int, 0),
 		stringMap:       make(map[string]int, 0),
-		maxDataAddr:     4, // Start of global area in .mscr_data block
+		maxDataAddr:     3, // Start of global area in .mscr_data block
 
 		variableMap: make(map[string][]asmVar, 0),
 
@@ -216,6 +217,8 @@ func (ast *AST) GenerateASM(bootloader, verbose bool) string {
 	// Necessary, because identifiers are by default auto-assigned to var param types
 	for _, a := range asm {
 		a.fixGlobalAndStringParamTypes(transformState)
+
+		// For debug printing
 		a.originalAsmCmdString = a.String()
 	}
 
@@ -267,13 +270,13 @@ func (ast *AST) GenerateASM(bootloader, verbose bool) string {
 
 	bootloaderInitialization := ""
 	if bootloader {
-		bootloaderInitialization = fmt.Sprintf(bootloaderInitAsm, 4+len(transformState.binData))
+		bootloaderInitialization = bootloaderInitAsm
 	}
 
 	// Create data section
-	dataAsm := "0x4000 ; HSP\n\n.mscr_data __LABEL_SET\n"
+	dataAsm := ".mscr_data __LABEL_SET\n"
 	for _, d := range transformState.binData {
-		dataAsm += fmt.Sprintf("0x%x\n", d)
+		dataAsm += fmt.Sprintf("0x%x\n", uint(d))
 	}
 
 	// Combine everything together
@@ -407,6 +410,7 @@ const initializationAsm = `
 ; MSCR initialization routine
 .mscr_init_main __LABEL_SET
 SET SP ; Stack
+.mscr_data_end __LABEL_SET ; _data_end label has to be one word after code start, because reading in bootloaderInitAsm is technically off by one for performance reasons
 0x7FFF
 SET H ; VarHeap
 .mscr_code_end
@@ -426,7 +430,8 @@ HALT ; After execution, halt
 
 const bootloaderInitAsm = `
 ; MSCR bootloader static value loader
-.mscr_init_bootloader SETREG A 0x%x ; Data block end address
+.mscr_init_bootloader SET A
+.mscr_data_end ; Data block end address = Code block start address
 SETREG B 0x0003 ; Data start
 SETREG C 0xD003 ; Start of readonly CFG region for bootloader ROM + offset for data start
 

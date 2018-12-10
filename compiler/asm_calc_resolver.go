@@ -3,7 +3,6 @@ package compiler
 import (
 	"bytes"
 	"fmt"
-	"github.com/davecgh/go-spew/spew"
 	"log"
 	"os"
 	"os/exec"
@@ -11,11 +10,15 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/davecgh/go-spew/spew"
+
 	"github.com/PiMaker/mscr/yard"
 )
 
-const CalcTypeRegexLiteral = `^(?:0x)?\d+$`
-const CalcTypeRegexMath = `^(?:\=\=|\!\=|\<\=|\>\=|\<\<|\>\>|\+|\-|\<|\>|\*|\/|\%|\(|\)|\s|,|\~|[a-zA-Z0-9_])*$`
+// Careful here, we want to match base 10, 16, but not variables
+// (e.g. 0xfab = match, 0xno_u = no match, technically a variable [though it has a leading 0?])
+const CalcTypeRegexLiteral = `^((0(x|X))[0-9a-fA-F]+|\d+)$`
+const CalcTypeRegexMath = `^(?:\=\=|\!\=|\<\=|\>\=|\<\<|\>\>|\+|\-|\<|\>|\*|\/|\%|\(|\)|\s|,|\~|\||\&|\$|\^|[a-zA-Z0-9_])*$`
 const CalcTypeRegexAsm = `^asm\s*\{.*?\}$`
 
 var calcTypeRegexLiteralRegexp = regexp.MustCompile(CalcTypeRegexLiteral)
@@ -33,7 +36,7 @@ func resolveCalc(calc string, scope string, state *asmTransformState) []*asmCmd 
 
 		// Assume developer knows what they are doing
 		// Put asm verbosely and hope if fills up F
-		return toRawAsm("_" + calc) // Note: underscore (_) is not in calc, to not confuse the parser
+		return toRawAsm("_" + calc) // Note: underscore (_) is not used in calc (e.g. "asm", not "_asm"), to not confuse the parser
 
 	} else if calcTypeRegexLiteralRegexp.MatchString(calc) {
 
@@ -50,6 +53,7 @@ func resolveCalc(calc string, scope string, state *asmTransformState) []*asmCmd 
 		var funcFunct string
 		funcStackOffset := 0
 		var funcFunargLast int
+		var lastVar string
 
 		for _, token := range shunted {
 			switch token.tokenType {
@@ -65,7 +69,12 @@ func resolveCalc(calc string, scope string, state *asmTransformState) []*asmCmd 
 				switch token.value {
 				case "INVOKE":
 					// Call function and push return value to stack
-					output = append(output, callCalcFunc(funcFunct, funcFunargLast, state)...)
+					output = append(output, callCalcFunc(funcFunct, funcFunargLast, state, lastVar)...)
+
+					// Special functions include a "POP", fix the stack counter for them by increasing the internal counter for what it was decreased earlier
+					if funcFunct == "$" || funcFunct == "$$" {
+						funcStackOffset += funcFunargLast // Will always be 1, since $ and $$ both require exactly one argument (or they fatalln)
+					}
 				}
 
 			case "OPRND":
@@ -88,6 +97,8 @@ func resolveCalc(calc string, scope string, state *asmTransformState) []*asmCmd 
 						},
 						comment: " CALC: var " + token.value,
 					}
+
+					lastVar = token.value
 
 					// Take care of globals and string addresses
 					cmd.fixGlobalAndStringParamTypes(state)
@@ -288,7 +299,7 @@ func symbolToALUFuncName(oper string) string {
 
 func setRegToLiteralFromString(calc, reg string) []*asmCmd {
 	var calcValue int64
-	if strings.Index(calc, "0x") == 0 {
+	if strings.Index(calc, "0x") == 0 || strings.Index(calc, "0X") == 0 {
 		// Error ignored, format is validated at this point
 		calcValue, _ = strconv.ParseInt(calc[2:], 16, 16)
 	} else {
@@ -313,64 +324,164 @@ func setRegToLiteralFromString(calc, reg string) []*asmCmd {
 	}
 }
 
-func callCalcFunc(funcName string, paramCount int, state *asmTransformState) []*asmCmd {
+func callCalcFunc(funcName string, paramCount int, state *asmTransformState, lastVarName string) []*asmCmd {
 	retval := make([]*asmCmd, 0)
 
-	// Scope handling should still work in calc context, recursive resolving is really quite something huh?
-	retval = append(retval, &asmCmd{
-		ins: "__FLUSHSCOPE",
-	})
+	if funcName == "$" {
 
-	retval = append(retval, &asmCmd{
-		ins: "__CLEARSCOPE",
-	})
-
-	fLabel := getFuncLabelSpecific(funcName, paramCount)
-	function := ""
-	for _, varFunc := range state.functionTableVar {
-		if varFunc == fLabel {
-			function = varFunc
-			break
+		if paramCount != 1 {
+			log.Fatalln("ERROR: Special function $ requires exactly 1 argument, " + strconv.Itoa(paramCount) + " given")
 		}
-	}
 
-	if function == "" {
-		for _, voidFunc := range state.functionTableVoid {
-			if voidFunc == fLabel {
-				log.Fatalf("ERROR: Tried calling a void function in a calc context: Function '%s' with %d parameters\n", funcName, paramCount)
+		// Special function $ -> Dereference (get value behind address)
+
+		// Retrieve address value
+		retval = append(retval, &asmCmd{
+			ins: "POP",
+			params: []*asmParam{
+				&asmParam{
+					asmParamType: asmParamTypeRaw,
+					value:        "F",
+				},
+			},
+		})
+
+		// Perform memory access
+		retval = append(retval, &asmCmd{
+			ins: "LOAD",
+			params: []*asmParam{
+				&asmParam{
+					asmParamType: asmParamTypeRaw,
+					value:        "F",
+				},
+				&asmParam{
+					asmParamType: asmParamTypeRaw,
+					value:        "F",
+				},
+			},
+		})
+
+		// Push result back
+		retval = append(retval, &asmCmd{
+			ins: "PUSH",
+			params: []*asmParam{
+				&asmParam{
+					asmParamType: asmParamTypeRaw,
+					value:        "F",
+				},
+			},
+		})
+
+		retval[1].fixGlobalAndStringParamTypes(state)
+
+	} else if funcName == "$$" {
+
+		if paramCount != 1 {
+			log.Fatalln("ERROR: Special function $$ requires exactly 1 argument, " + strconv.Itoa(paramCount) + " given")
+		}
+
+		// Special function $$ -> Reference (create pointer)
+
+		// This POP is technically useless, but needed to keep the stack sane. It will automatically be optimized out later.
+		// (Sadly, the variable access getting us this value probably won't, but hey, I'm trying.)
+		retval = append(retval, &asmCmd{
+			ins: "POP",
+			params: []*asmParam{
+				&asmParam{
+					asmParamType: asmParamTypeRaw,
+					value:        "F",
+				},
+			},
+		})
+
+		retval = append(retval, &asmCmd{
+			ins: "MOV",
+			params: []*asmParam{
+				&asmParam{
+					asmParamType: asmParamTypeVarAddr,
+					value:        lastVarName,
+				},
+				&asmParam{
+					asmParamType: asmParamTypeRaw,
+					value:        "F",
+				},
+			},
+		})
+
+		// Push result back
+		retval = append(retval, &asmCmd{
+			ins: "PUSH",
+			params: []*asmParam{
+				&asmParam{
+					asmParamType: asmParamTypeRaw,
+					value:        "F",
+				},
+			},
+		})
+
+		retval[1].fixGlobalAndStringParamTypes(state)
+
+	} else {
+
+		// Scope handling should still work in calc context, recursive resolving is really quite something huh?
+		retval = append(retval, &asmCmd{
+			ins: "__FLUSHSCOPE",
+		})
+
+		retval = append(retval, &asmCmd{
+			ins: "__CLEARSCOPE",
+		})
+
+		fLabel := getFuncLabelSpecific(funcName, paramCount)
+		function := ""
+		for _, varFunc := range state.functionTableVar {
+			if varFunc == fLabel {
+				function = varFunc
+				break
 			}
 		}
 
 		if function == "" {
-			log.Printf("WARNING: Cannot find function to call (calc): Function '%s' with %d parameters (Assuming extern function)\n", funcName, paramCount)
-			function = fLabel
+			for _, voidFunc := range state.functionTableVoid {
+				if voidFunc == fLabel {
+					log.Fatalf("ERROR: Tried calling a void function in a calc context: Function '%s' with %d parameters\n", funcName, paramCount)
+				}
+			}
+
+			if function == "" {
+				log.Printf("WARNING: Cannot find function to call (calc): Function '%s' with %d parameters (Assuming extern function)\n", funcName, paramCount)
+				function = fLabel
+			}
 		}
+
+		retval = append(retval, &asmCmd{
+			ins: "CALL",
+			params: []*asmParam{
+				&asmParam{
+					asmParamType: asmParamTypeRaw,
+					value:        "." + function,
+				},
+			},
+		})
+
+		// Push returned value to stack for further calculations
+		retval = append(retval, &asmCmd{
+			ins: "PUSH",
+			params: []*asmParam{
+				&asmParam{
+					asmParamType: asmParamTypeRaw,
+					value:        "A",
+				},
+			},
+		})
+
+		retval = append(retval, &asmCmd{
+			ins: "__CLEARSCOPE",
+		})
+
 	}
 
-	retval = append(retval, &asmCmd{
-		ins: "CALL",
-		params: []*asmParam{
-			&asmParam{
-				asmParamType: asmParamTypeRaw,
-				value:        "." + function,
-			},
-		},
-	})
-
-	// Push returned value to stack for further calculations
-	retval = append(retval, &asmCmd{
-		ins: "PUSH",
-		params: []*asmParam{
-			&asmParam{
-				asmParamType: asmParamTypeRaw,
-				value:        "A",
-			},
-		},
-	})
-
-	return append(retval, &asmCmd{
-		ins: "__CLEARSCOPE",
-	})
+	return retval
 }
 
 var parserExtracted = false

@@ -210,7 +210,7 @@ while read -r charpair; do
 	if [ "${STATE}" == "${STATE_OPERATOR}" ] ; then
 		charpair2="${char}${char2}"
 		case "${charpair2}" in
-			"!=" | '&&' | '||' | '<=' | '>=' | '==' | '<<' | '>>')
+			"!=" | '<=' | '>=' | '==' | '<<' | '>>')
 				buffer="${charpair2}"; 
 				read -r charpair #drop next char
 				;;

@@ -2,10 +2,13 @@ package compiler
 
 import (
 	"fmt"
-	"github.com/logrusorgru/aurora"
 	"log"
 	"strconv"
 	"strings"
+
+	"github.com/mileusna/conditional"
+
+	"github.com/logrusorgru/aurora"
 )
 
 const AssigneableRegisters = 4
@@ -208,7 +211,65 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 			p.asmParamType = asmParamTypeCalc
 			p.value = fmt.Sprintf("[%d]", len(state.variableMap[p.value]))
 
-		// Variable/Global access
+		case asmParamTypeStringRead:
+			// This is always a pointer to the start of the specfied string data
+			p.asmParamType = asmParamTypeCalc
+			p.value = strconv.Itoa(state.stringMap[p.value])
+
+		case asmParamTypeCalc:
+			log.Fatalln("ERROR: Calc parameter was not resolved early. This is most likely a compiler error.")
+
+		// Address-type parameters
+		case asmParamTypeGlobalAddr:
+			// Easy mode
+			p.asmParamType = asmParamTypeCalc
+			p.value = strconv.Itoa(state.globalMemoryMap[p.value])
+
+		case asmParamTypeStringAddr:
+			// Not sure what this would do, let's just disallow it altogether
+			log.Fatalln("ERROR: A 'string' global is already a pointer. Please first check out the string into a variable before creating a pointer-pointer.")
+
+		case asmParamTypeVarAddr:
+			// Alright, this is the tricky part
+			// Recall that a "var" address is calculated from the varheap pointer minus it's order number
+			output = append(output, []*asmCmd{
+				&asmCmd{
+					ins: "SETREG",
+					params: []*asmParam{
+						&asmParam{
+							asmParamType: asmParamTypeRaw,
+							value:        "G",
+						},
+						&asmParam{
+							asmParamType: asmParamTypeRaw,
+							value:        fmt.Sprintf("0x%x", getAsmVar(p.value, cmd.scope, state).orderNumber),
+						},
+					},
+					scope: cmd.scope,
+				},
+				&asmCmd{
+					ins: "SUB",
+					params: []*asmParam{
+						&asmParam{
+							asmParamType: asmParamTypeRaw,
+							value:        "H",
+						},
+						&asmParam{
+							asmParamType: asmParamTypeVarWrite,
+							value:        "F", // Output
+						},
+						&asmParam{
+							asmParamType: asmParamTypeRaw,
+							value:        "G",
+						},
+					},
+					scope: cmd.scope,
+				}}...)
+
+			p.asmParamType = asmParamTypeRaw
+			p.value = "F" // F is output of calculation above
+
+		// Variable/Global access (aka. the big stuff)
 		case asmParamTypeVarRead, asmParamTypeVarWrite, asmParamTypeGlobalRead, asmParamTypeGlobalWrite:
 
 			asmVar := getAsmVar(p.value, cmd.scope, state)
@@ -308,14 +369,6 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 
 			// Set paramType to raw last to avoid errors above
 			p.asmParamType = asmParamTypeRaw
-
-		case asmParamTypeStringRead:
-			// This is always a pointer to the start of the specfied string data
-			p.asmParamType = asmParamTypeCalc
-			p.value = strconv.Itoa(state.stringMap[p.value])
-
-		case asmParamTypeCalc:
-			log.Fatalln("ERROR: Calc parameter was not resolved early. This is most likely a compiler error.")
 		}
 	}
 
@@ -570,10 +623,10 @@ func varFromHeap(v *asmVar, register string, state *asmTransformState, cmdScope 
 func (cmd *asmCmd) fixGlobalAndStringParamTypes(state *asmTransformState) {
 	if cmd.params != nil && len(cmd.params) > 0 {
 		for _, p := range cmd.params {
-			if p.asmParamType == asmParamTypeVarRead {
+			if p.asmParamType == asmParamTypeVarRead || p.asmParamType == asmParamTypeVarAddr {
 				for global, addr := range state.globalMemoryMap {
 					if global == "global_"+p.value {
-						p.asmParamType = asmParamTypeGlobalRead
+						p.asmParamType = conditional.Int(p.asmParamType == asmParamTypeVarRead, asmParamTypeGlobalRead, asmParamTypeGlobalAddr)
 						p.addrCache = addr
 						break
 					}
@@ -581,7 +634,7 @@ func (cmd *asmCmd) fixGlobalAndStringParamTypes(state *asmTransformState) {
 
 				for str, addr := range state.stringMap {
 					if str == "global_"+p.value {
-						p.asmParamType = asmParamTypeStringRead
+						p.asmParamType = conditional.Int(p.asmParamType == asmParamTypeVarRead, asmParamTypeStringRead, asmParamTypeStringAddr)
 						p.addrCache = addr
 						break
 					}

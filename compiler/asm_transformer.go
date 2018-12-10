@@ -5,6 +5,8 @@ import (
 	"log"
 	"reflect"
 
+	"github.com/logrusorgru/aurora"
+
 	"github.com/alecthomas/participle/lexer"
 )
 
@@ -16,6 +18,9 @@ const asmParamTypeGlobalWrite = 8
 const asmParamTypeGlobalRead = 16
 const asmParamTypeScopeVarCount = 32
 const asmParamTypeStringRead = 64
+const asmParamTypeVarAddr = 128
+const asmParamTypeStringAddr = 256
+const asmParamTypeGlobalAddr = 512
 
 type asmCmd struct {
 	ins    string
@@ -147,6 +152,8 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 			})
 
 			break
+		} else if astNode.FunctionName == "$" || astNode.FunctionName == "$$" {
+			log.Fatalln("ERROR: Cannot use special functions '$' and '$$' in non-value context (e.g. calling $ or $$ as a void function standalone. Use calc context [] instead.)")
 		}
 
 		newAsm = append(newAsm, callFunc(astNode.FunctionName, astNode.Parameters, state)...)
@@ -158,7 +165,7 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 			// String global
 			state.stringMap["global_"+astNode.Name] = state.maxDataAddr
 
-			newData = make([]int16, len(*astNode.Value.Text)+1)
+			newData = make([]int16, len(*astNode.Value.Text)+1) // len(*) + 1 automatically null-terminates the string representation (since int16 is default 0 initialized in go)
 			for i, c := range *astNode.Value.Text {
 				newData[i] = int16(c)
 			}
@@ -344,7 +351,7 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 
 	default:
 		// Instruction unsupported, bad path
-		log.Println("Instruction currently unsupported: " + reflect.TypeOf(astNode).String())
+		log.Println(aurora.Red("WARNING: Instruction currently unsupported: " + reflect.TypeOf(astNode).String()))
 		newAsm = append(newAsm, &asmCmd{
 			ins:         fmt.Sprintf(";UNSUPPORTED INSTRUCTION (%s);", reflect.TypeOf(astNode).String()),
 			params:      make([]*asmParam, 0),
