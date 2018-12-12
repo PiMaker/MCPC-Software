@@ -159,7 +159,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 		// If we're here, the variable is currently not checked out
 		conflictingName := getNameForRegister(cmd.scopeAnnotationRegister, state)
 		if conflictingName != nil && state.scopeRegisterDirty[cmd.scopeAnnotationRegister] {
-			// Target register not empty needs flushing, evict it first
+			// Target register not empty: Needs flushing, evict it first
 			output = append(output, varToHeap(getAsmVar(*conflictingName, cmd.scope, state), toReg(cmd.scopeAnnotationRegister), state, cmd.scope)...)
 
 			// Update state for consistency
@@ -223,7 +223,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 		case asmParamTypeGlobalAddr:
 			// Easy mode
 			p.asmParamType = asmParamTypeCalc
-			p.value = strconv.Itoa(state.globalMemoryMap[p.value])
+			p.value = strconv.Itoa(state.globalMemoryMap["global_"+p.value])
 
 		case asmParamTypeStringAddr:
 			// Not sure what this would do, let's just disallow it altogether
@@ -255,7 +255,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 							value:        "H",
 						},
 						&asmParam{
-							asmParamType: asmParamTypeVarWrite,
+							asmParamType: asmParamTypeRaw,
 							value:        "F", // Output
 						},
 						&asmParam{
@@ -426,6 +426,7 @@ func getAsmVar(name string, scope string, state *asmTransformState) *asmVar {
 		}
 
 		if avar == nil {
+			//panic(name)
 			log.Fatalf("ERROR: Invalid variable name in resolve: %s (scope: %s)\n", name, scope)
 		}
 	}
@@ -694,17 +695,23 @@ func (cmd *asmCmd) StringWithIndent(i int) string {
 			case asmParamTypeCalc:
 				formatted = "[" + formatted + "]"
 			case asmParamTypeGlobalRead:
-				formatted = fmt.Sprintf("g(%s,r,addr=%d)", formatted, p.addrCache)
+				formatted = fmt.Sprintf("g(%s,mode=r,addr=%d)", formatted, p.addrCache)
+			case asmParamTypeGlobalAddr:
+				formatted = fmt.Sprintf("g(%s,mode=a,addr=%d)", formatted, p.addrCache)
 			case asmParamTypeGlobalWrite:
-				formatted = fmt.Sprintf("g(%s,w,addr=%d)", formatted, p.addrCache)
+				formatted = fmt.Sprintf("g(%s,mode=w,addr=%d)", formatted, p.addrCache)
 			case asmParamTypeVarRead:
-				formatted = "var(" + formatted + ",r)"
+				formatted = "var(" + formatted + ",mode=r)"
 			case asmParamTypeVarWrite:
-				formatted = "var(" + formatted + ",w)"
+				formatted = "var(" + formatted + ",mode=w)"
+			case asmParamTypeVarAddr:
+				formatted = "var(" + formatted + ",mode=a)"
+			case asmParamTypeStringAddr:
+				formatted = fmt.Sprintf("s(%s,mode=a,addr=%d)", formatted, p.addrCache)
+			case asmParamTypeStringRead:
+				formatted = fmt.Sprintf("s(%s,mode=r,addr=%d)", formatted, p.addrCache)
 			case asmParamTypeScopeVarCount:
 				formatted = "varCount(scope=" + cmd.scope + ")"
-			case asmParamTypeStringRead:
-				formatted = fmt.Sprintf("s(%s,r,addr=%d)", formatted, p.addrCache)
 			}
 
 			if p.asmParamType == asmParamTypeRaw {

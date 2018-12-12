@@ -29,3 +29,14 @@ Parameters:
 2-n: Stack
 
 Function scoped variables: VarHeap
+
+
+## Meta-Assembly-only commands
+
+__CLEARSCOPE: resets scope information from here on out (does *not* generate output ASM)
+__ASSUMESCOPE: assumes variable cmd.scopeAnnotationName is in cmd.scopeAnnotationRegister (dirty, does *not* generate output ASM) from here on out
+__FLUSHSCOPE: saves all variables and globals checked out as dirty back to memory
+__FLUSHGLOBALS: saves all globals checked out as dirty back to memory
+__FORCESCOPE: forces variable cmd.scopeAnnotationName to be checked out into cmd.scopeAnnotationRegister, eviciting or overwriting whatever was checked out there previously
+__SET_DIRECT: marks cmd.scopeAnnotationName as directly assigned variable, thus forcing it to be writtin to memory after every write access
+__EVICT: forcibly evicts cmd.scopeAnnotationRegister (but leaves non-dirty checkout marker)

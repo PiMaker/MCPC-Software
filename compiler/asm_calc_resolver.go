@@ -16,7 +16,7 @@ import (
 )
 
 // Careful here, we want to match base 10, 16, but not variables
-// (e.g. 0xfab = match, 0xno_u = no match, technically a variable [though it has a leading 0?])
+// (e.g. 0xfAb = match, 0xno_u = no match, technically a variable [though it has a leading 0?])
 const CalcTypeRegexLiteral = `^((0(x|X))[0-9a-fA-F]+|\d+)$`
 const CalcTypeRegexMath = `^(?:\=\=|\!\=|\<\=|\>\=|\<\<|\>\>|\+|\-|\<|\>|\*|\/|\%|\(|\)|\s|,|\~|\||\&|\$|\^|[a-zA-Z0-9_])*$`
 const CalcTypeRegexAsm = `^asm\s*\{.*?\}$`
@@ -26,6 +26,29 @@ var calcTypeRegexMathRegexp = regexp.MustCompile(CalcTypeRegexMath)
 var calcTypeRegexAsmRegexp = regexp.MustCompile(CalcTypeRegexAsm)
 
 func resolveCalc(calc string, scope string, state *asmTransformState) []*asmCmd {
+	if state.verbose {
+		log.Println("DEBUG OUTPUT: Calc expression \"" + calc + "\" resulted in following meta-asm:")
+	}
+
+	output := resolveCalcInternal(calc, scope, state)
+
+	// Set scope of "parent" (calc instruction) on all generated "child" instructions
+	for _, a := range output {
+		a.scope = scope
+
+		if state.verbose {
+			fmt.Println("meta/calc " + a.String())
+		}
+	}
+
+	if state.verbose {
+		fmt.Println()
+	}
+
+	return output
+}
+
+func resolveCalcInternal(calc string, scope string, state *asmTransformState) []*asmCmd {
 	// Remove square brackets, they are just indicators that this is a calc value string
 	calc = strings.Replace(calc, "[", "", -1)
 	calc = strings.Replace(calc, "]", "", -1)
@@ -258,11 +281,10 @@ func resolveCalc(calc string, scope string, state *asmTransformState) []*asmCmd 
 		}
 
 		return output
-
-	} else {
-		log.Fatalln("ERROR: Unsupported calc string: " + calc)
-		return nil
 	}
+
+	log.Fatalln("ERROR: Unsupported calc string: " + calc)
+	return nil
 }
 
 func symbolToALUFuncName(oper string) string {
@@ -334,6 +356,19 @@ func callCalcFunc(funcName string, paramCount int, state *asmTransformState, las
 		}
 
 		// Special function $ -> Dereference (get value behind address)
+
+		// Mark value as directly-addressed since we never know when someone is going to dereference this pointer
+		// Note: This only works for variables, globals are never directly-addressed
+		// However, single-layer pointers for globals can be dereferenced at compile-time and evicted back to RAM if necessary
+		// Two-layer pointers to globals are thus not officially supported
+		retval = append(retval, &asmCmd{
+			ins: "__SET_DIRECT",
+			params: []*asmParam{
+				&asmParam{
+					// TODO
+				},
+			},
+		})
 
 		// Retrieve address value
 		retval = append(retval, &asmCmd{
@@ -422,6 +457,8 @@ func callCalcFunc(funcName string, paramCount int, state *asmTransformState, las
 		retval[1].fixGlobalAndStringParamTypes(state)
 
 	} else {
+
+		// Regular function
 
 		// Scope handling should still work in calc context, recursive resolving is really quite something huh?
 		retval = append(retval, &asmCmd{

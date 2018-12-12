@@ -60,6 +60,8 @@ func (ast *AST) GenerateASM(bootloader, verbose bool) string {
 				}
 			}
 		}, nil, 0)
+
+		fmt.Println()
 	}
 
 	log.Println("Validating source...")
@@ -136,6 +138,8 @@ func (ast *AST) GenerateASM(bootloader, verbose bool) string {
 
 		specificInitializationAsm: make([]*asmCmd, 0),
 		binData:                   make([]int16, 0),
+
+		verbose: verbose,
 	}
 
 	// Generate Meta-ASM

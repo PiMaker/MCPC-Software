@@ -36,6 +36,7 @@ type asmCmd struct {
 	printIndent int
 
 	originalAsmCmdString string
+	calcAsmOutputVerbose string
 }
 
 type asmParam struct {
@@ -66,6 +67,8 @@ type asmTransformState struct {
 	scopeRegisterDirty      map[int]bool
 
 	printIndent int
+
+	verbose bool
 }
 
 type asmVar struct {
