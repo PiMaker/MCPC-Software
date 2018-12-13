@@ -8,100 +8,12 @@ import (
 	"strings"
 
 	"github.com/alecthomas/participle/lexer"
+	"github.com/logrusorgru/aurora"
+	"github.com/mileusna/conditional"
 )
 
 var regexpAsmExtract = regexp.MustCompile(`(?s)_asm\s*\{(.*?)\}`)
 var regexpAsmExtractCmds = regexp.MustCompile(`\s*(\S+)\s*`)
-
-func toRawAsm(asm string) []*asmCmd {
-	newAsm := make([]*asmCmd, 0)
-	extractedAsm := strings.Split(regexpAsmExtract.FindAllStringSubmatch(asm, -1)[0][1], "\n")
-	for _, line := range extractedAsm {
-		lineCmdMatches := regexpAsmExtractCmds.FindAllStringSubmatch(line, -1)
-		if len(lineCmdMatches) == 0 {
-			continue
-		}
-
-		newAsm = append(newAsm, &asmCmd{
-			ins:    lineCmdMatches[0][1],
-			params: make([]*asmParam, 0),
-		})
-		for i, cmd := range lineCmdMatches {
-			if i == 0 {
-				continue
-			}
-
-			newAsm[len(newAsm)-1].params = append(newAsm[len(newAsm)-1].params, &asmParam{
-				value:        cmd[1],
-				asmParamType: asmParamTypeRaw,
-			})
-		}
-	}
-
-	return newAsm
-}
-
-func callFunc(funcName string, parameters []*RuntimeValue, state *asmTransformState) []*asmCmd {
-	retval := make([]*asmCmd, 0)
-
-	// Push parameters to stack
-	for i := 0; i < len(parameters); i++ {
-		paramAsAsmCalc := runtimeValueToAsmParam(parameters[i])
-		retval = append(retval, &asmCmd{
-			ins: "PUSH",
-			params: []*asmParam{
-				paramAsAsmCalc,
-			},
-		})
-	}
-
-	retval = append(retval, &asmCmd{
-		ins: "__FLUSHSCOPE",
-	})
-
-	retval = append(retval, &asmCmd{
-		ins: "__CLEARSCOPE",
-	})
-
-	fLabel := getFuncLabelSpecific(funcName, len(parameters))
-	function := ""
-	//isVar := false
-	for _, varFunc := range state.functionTableVar {
-		if varFunc == fLabel {
-			//isVar = true
-			function = varFunc
-			break
-		}
-	}
-
-	if function == "" {
-		for _, voidFunc := range state.functionTableVoid {
-			if voidFunc == fLabel {
-				function = voidFunc
-				break
-			}
-		}
-
-		if function == "" {
-			log.Printf("WARNING: Cannot find function to call: Function '%s' with %d parameters (Assuming extern function)\n", funcName, len(parameters))
-			function = fLabel
-		}
-	}
-
-	retval = append(retval, &asmCmd{
-		ins: "CALL",
-		params: []*asmParam{
-			&asmParam{
-				asmParamType: asmParamTypeRaw,
-				value:        "." + function,
-			},
-		},
-	})
-
-	return append(retval, &asmCmd{
-		ins: "__CLEARSCOPE",
-	})
-}
 
 func runtimeValueToAsmParam(val *RuntimeValue) *asmParam {
 	// TODO: Maybe add more shortcut options?
@@ -132,114 +44,6 @@ func runtimeValueToAsmParam(val *RuntimeValue) *asmParam {
 	return &asmParam{
 		asmParamType: asmParamTypeCalc,
 		value:        valueString,
-	}
-}
-
-func funcPushState(state *asmTransformState) []*asmCmd {
-
-	return []*asmCmd{
-		&asmCmd{
-			ins: "SETREG",
-			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "G",
-				},
-				&asmParam{
-					asmParamType: asmParamTypeScopeVarCount,
-					value:        state.currentFunction,
-				},
-			},
-		},
-		&asmCmd{
-			ins: "ADD",
-			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "G",
-				},
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "H",
-				},
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "H",
-				},
-			},
-		},
-	}
-
-	/*
-		ADD <scopeVarCount> H H
-	*/
-}
-
-func funcPopState(state *asmTransformState) []*asmCmd {
-
-	return []*asmCmd{
-		&asmCmd{
-			ins: "SETREG",
-			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "G",
-				},
-				&asmParam{
-					asmParamType: asmParamTypeScopeVarCount,
-					value:        state.currentFunction,
-				},
-			},
-		},
-		&asmCmd{
-			ins: "SUB",
-			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "H",
-				},
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "H",
-				},
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "G",
-				},
-			},
-		},
-	}
-
-	/*
-		SUB H H <scopeVarCount>
-	*/
-}
-
-func varToStack(varName string, state *asmTransformState) []*asmCmd {
-	return []*asmCmd{
-		&asmCmd{
-			ins: "PUSH",
-			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeVarRead,
-					value:        varName,
-				},
-			},
-		},
-	}
-}
-
-func varFromStack(varName string, state *asmTransformState) []*asmCmd {
-	return []*asmCmd{
-		&asmCmd{
-			ins: "POP",
-			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeVarWrite,
-					value:        varName,
-				},
-			},
-		},
 	}
 }
 
@@ -309,6 +113,129 @@ func isResolved(cmds []*asmCmd) bool {
 	return true
 }
 
+func rawAsmParam(content string) *asmParam {
+	return &asmParam{
+		asmParamType: asmParamTypeRaw,
+		value:        content,
+	}
+}
+
+func containsInt(slice []int, value int) bool {
+	for _, v := range slice {
+		if v == value {
+			return true
+		}
+	}
+
+	return false
+}
+
+func getNameForRegister(reg int, state *asmTransformState) *string {
+	for name, assignedReg := range state.scopeRegisterAssignment {
+		if assignedReg == reg {
+			return &name
+		}
+	}
+
+	return nil
+}
+
+func getAsmVar(name string, scope string, state *asmTransformState) *asmVar {
+	var avar *asmVar
+	for _, v := range state.variableMap[scope] {
+		if v.name == name {
+			avar = &v
+			break
+		}
+	}
+
+	if avar == nil {
+		// Search for global if locally scoped variabled couldn't be found
+		// This is safe, because it is guaranteed at this stage that no variable can be named the same as any given global
+		for gname, addr := range state.globalMemoryMap {
+			if gname == "global_"+name {
+				avar = &asmVar{
+					name:        name,
+					orderNumber: addr,
+					isGlobal:    true,
+				}
+			}
+		}
+
+		if avar == nil {
+			//panic(name)
+			log.Fatalf("ERROR: Invalid variable name in resolve: %s (scope: %s)\n", name, scope)
+		}
+	}
+
+	return avar
+}
+
+// Fixes globals and strings incorrectly being detected as variable identifiers
+func (cmd *asmCmd) fixGlobalAndStringParamTypes(state *asmTransformState) {
+	if cmd.params != nil && len(cmd.params) > 0 {
+		for _, p := range cmd.params {
+			if p.asmParamType == asmParamTypeVarRead || p.asmParamType == asmParamTypeVarAddr {
+				for global, addr := range state.globalMemoryMap {
+					if global == "global_"+p.value {
+						p.asmParamType = conditional.Int(p.asmParamType == asmParamTypeVarRead, asmParamTypeGlobalRead, asmParamTypeGlobalAddr)
+						p.addrCache = addr
+						break
+					}
+				}
+
+				for str, addr := range state.stringMap {
+					if str == "global_"+p.value {
+						p.asmParamType = conditional.Int(p.asmParamType == asmParamTypeVarRead, asmParamTypeStringRead, asmParamTypeStringAddr)
+						p.addrCache = addr
+						break
+					}
+				}
+			} else if p.asmParamType == asmParamTypeVarWrite {
+				for global, addr := range state.globalMemoryMap {
+					if global == "global_"+p.value {
+						p.asmParamType = asmParamTypeGlobalWrite
+						p.addrCache = addr
+						break
+					}
+				}
+
+				for str := range state.stringMap {
+					if str == p.value {
+						log.Fatalf("ERROR: Cannot write to a string variable: '%s'", p.value)
+					}
+				}
+			}
+		}
+	}
+}
+
+// Generates valid MCPC assembly from an asmCmd
+func (cmd *asmCmd) asmString() string {
+	retval := cmd.ins
+
+	if strings.HasPrefix(retval, "__") {
+		// Internal command, ignore
+		return ""
+	}
+
+	if cmd.params != nil && len(cmd.params) > 0 {
+		for _, p := range cmd.params {
+			if p.asmParamType != asmParamTypeRaw {
+				log.Fatalf("Unconverted asmParam found (type: %d, value: %v). How did you get here?\n", p.asmParamType, p)
+			}
+
+			retval += " " + p.value
+		}
+	}
+
+	if cmd.comment != "" {
+		retval += fmt.Sprintf(" ;%s", strings.TrimRight(cmd.comment, "\n"))
+	}
+
+	return retval
+}
+
 func getFuncLabel(node Function) string {
 	return fmt.Sprintf("mscr_function_%s_params_%d", node.Name, len(node.Parameters))
 }
@@ -346,4 +273,78 @@ var rnumLookup = []string{
 
 func toReg(rnum int) string {
 	return rnumLookup[rnum]
+}
+
+// Debug information for an asmCmd in pre-formatted string form
+func (cmd *asmCmd) String() string {
+	return cmd.StringWithIndent(0)
+}
+
+func (cmd *asmCmd) StringWithIndent(i int) string {
+	var retval string
+	if strings.HasPrefix(cmd.ins, "__") {
+		retval = aurora.Brown(cmd.ins).String()
+	} else {
+		retval = aurora.Blue(cmd.ins).String()
+	}
+
+	if cmd.params != nil && len(cmd.params) > 0 {
+		for _, p := range cmd.params {
+			formatted := p.value
+			switch p.asmParamType {
+			case asmParamTypeCalc:
+				formatted = "[" + formatted + "]"
+			case asmParamTypeGlobalRead:
+				formatted = fmt.Sprintf("g(%s,mode=r,addr=%d)", formatted, p.addrCache)
+			case asmParamTypeGlobalAddr:
+				formatted = fmt.Sprintf("g(%s,mode=a,addr=%d)", formatted, p.addrCache)
+			case asmParamTypeGlobalWrite:
+				formatted = fmt.Sprintf("g(%s,mode=w,addr=%d)", formatted, p.addrCache)
+			case asmParamTypeVarRead:
+				formatted = "var(" + formatted + ",mode=r)"
+			case asmParamTypeVarWrite:
+				formatted = "var(" + formatted + ",mode=w)"
+			case asmParamTypeVarAddr:
+				formatted = "var(" + formatted + ",mode=a)"
+			case asmParamTypeStringAddr:
+				formatted = fmt.Sprintf("s(%s,mode=a,addr=%d)", formatted, p.addrCache)
+			case asmParamTypeStringRead:
+				formatted = fmt.Sprintf("s(%s,mode=r,addr=%d)", formatted, p.addrCache)
+			case asmParamTypeScopeVarCount:
+				formatted = "varCount(scope=" + cmd.scope + ")"
+			}
+
+			if p.asmParamType == asmParamTypeRaw {
+				if strings.HasPrefix(p.value, "0x") {
+					retval += " " + aurora.Brown(formatted).String()
+				} else {
+					retval += " " + aurora.Red(formatted).String()
+				}
+			} else {
+				retval += " " + aurora.Magenta(formatted).String()
+			}
+		}
+	}
+
+	if cmd.ins == "__ASSUMESCOPE" || cmd.ins == "__FORCESCOPE" {
+		retval += aurora.Magenta(fmt.Sprintf(" {var: %s, reg: %d}", cmd.scopeAnnotationName, cmd.scopeAnnotationRegister)).String()
+	}
+
+	if cmd.ins == "__SET_DIRECT" {
+		retval += aurora.Magenta(fmt.Sprintf(" {var: %s}", cmd.scopeAnnotationName)).String()
+	}
+
+	if cmd.comment != "" {
+		retval += aurora.Green(fmt.Sprintf("   ;%s", cmd.comment)).String()
+	}
+
+	for ind := 0; ind < cmd.printIndent; ind++ {
+		retval = "  " + retval
+	}
+
+	for ind := 0; ind < i; ind++ {
+		retval = "    " + retval
+	}
+
+	return retval
 }

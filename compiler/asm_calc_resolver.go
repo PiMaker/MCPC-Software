@@ -25,6 +25,8 @@ var calcTypeRegexLiteralRegexp = regexp.MustCompile(CalcTypeRegexLiteral)
 var calcTypeRegexMathRegexp = regexp.MustCompile(CalcTypeRegexMath)
 var calcTypeRegexAsmRegexp = regexp.MustCompile(CalcTypeRegexAsm)
 
+// Wrapper around resolveCalcInternal that additionally prints debug information if --verbose was passed
+// (and performs some additional post-processing on generated asm)
 func resolveCalc(calc string, scope string, state *asmTransformState) []*asmCmd {
 	if state.verbose {
 		log.Println("DEBUG OUTPUT: Calc expression \"" + calc + "\" resulted in following meta-asm:")
@@ -78,7 +80,7 @@ func resolveCalcInternal(calc string, scope string, state *asmTransformState) []
 		var funcFunargLast int
 		var lastVar string
 
-		for _, token := range shunted {
+		for i, token := range shunted {
 			switch token.tokenType {
 			case "FUNCT":
 				funcFunct = token.value
@@ -91,6 +93,11 @@ func resolveCalcInternal(calc string, scope string, state *asmTransformState) []
 			case "SYS":
 				switch token.value {
 				case "INVOKE":
+					// Check for $$ invocation mistakes
+					if funcFunct == "$$" && (i < 3 || shunted[i-3].tokenType != "OPRND" || calcTypeRegexLiteralRegexp.MatchString(shunted[i-3].value)) {
+						log.Fatalln("ERROR: Tried calling special function $$ on anything else than a variable name (Note: $$ does not support nesting or addressing literals)")
+					}
+
 					// Call function and push return value to stack
 					output = append(output, callCalcFunc(funcFunct, funcFunargLast, state, lastVar)...)
 
@@ -113,10 +120,7 @@ func resolveCalcInternal(calc string, scope string, state *asmTransformState) []
 								asmParamType: asmParamTypeVarRead,
 								value:        token.value,
 							},
-							&asmParam{
-								asmParamType: asmParamTypeRaw,
-								value:        "F",
-							},
+							rawAsmParam("F"),
 						},
 						comment: " CALC: var " + token.value,
 					}
@@ -133,10 +137,7 @@ func resolveCalcInternal(calc string, scope string, state *asmTransformState) []
 				output = append(output, &asmCmd{
 					ins: "PUSH",
 					params: []*asmParam{
-						&asmParam{
-							asmParamType: asmParamTypeRaw,
-							value:        "F",
-						},
+						rawAsmParam("F"),
 					},
 					comment: " CALC: push operand",
 				})
@@ -148,19 +149,13 @@ func resolveCalcInternal(calc string, scope string, state *asmTransformState) []
 					output = append(output, &asmCmd{
 						ins: "POP",
 						params: []*asmParam{
-							&asmParam{
-								asmParamType: asmParamTypeRaw,
-								value:        "E",
-							},
+							rawAsmParam("E"),
 						},
 					})
 					output = append(output, &asmCmd{
 						ins: "POP",
 						params: []*asmParam{
-							&asmParam{
-								asmParamType: asmParamTypeRaw,
-								value:        "F",
-							},
+							rawAsmParam("F"),
 						},
 					})
 
@@ -168,18 +163,9 @@ func resolveCalcInternal(calc string, scope string, state *asmTransformState) []
 					output = append(output, &asmCmd{
 						ins: aluIns,
 						params: []*asmParam{
-							&asmParam{
-								asmParamType: asmParamTypeRaw,
-								value:        "F", // Input 1
-							},
-							&asmParam{
-								asmParamType: asmParamTypeRaw,
-								value:        "F", // Output
-							},
-							&asmParam{
-								asmParamType: asmParamTypeRaw,
-								value:        "E", // Input 2
-							},
+							rawAsmParam("F"), // Input 1
+							rawAsmParam("F"), // Output
+							rawAsmParam("E"), // Input 2
 						},
 						comment: " CALC: operator " + aluIns,
 					})
@@ -187,10 +173,7 @@ func resolveCalcInternal(calc string, scope string, state *asmTransformState) []
 					output = append(output, &asmCmd{
 						ins: "PUSH",
 						params: []*asmParam{
-							&asmParam{
-								asmParamType: asmParamTypeRaw,
-								value:        "F",
-							},
+							rawAsmParam("F"),
 						},
 					})
 
@@ -198,10 +181,7 @@ func resolveCalcInternal(calc string, scope string, state *asmTransformState) []
 					output = append(output, &asmCmd{
 						ins: "POP",
 						params: []*asmParam{
-							&asmParam{
-								asmParamType: asmParamTypeRaw,
-								value:        "F",
-							},
+							rawAsmParam("F"),
 						},
 					})
 
@@ -213,24 +193,15 @@ func resolveCalcInternal(calc string, scope string, state *asmTransformState) []
 					output = append(output, &asmCmd{
 						ins: aluIns,
 						params: []*asmParam{
-							&asmParam{
-								asmParamType: asmParamTypeRaw,
-								value:        "F",
-							},
-							&asmParam{
-								asmParamType: asmParamTypeRaw,
-								value:        "F",
-							},
+							rawAsmParam("F"),
+							rawAsmParam("F"),
 						},
 					})
 
 					output = append(output, &asmCmd{
 						ins: "PUSH",
 						params: []*asmParam{
-							&asmParam{
-								asmParamType: asmParamTypeRaw,
-								value:        "F",
-							},
+							rawAsmParam("F"),
 						},
 					})
 
@@ -243,10 +214,7 @@ func resolveCalcInternal(calc string, scope string, state *asmTransformState) []
 		output = append(output, &asmCmd{
 			ins: "POP",
 			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "F",
-				},
+				rawAsmParam("F"),
 			},
 		})
 
@@ -264,8 +232,9 @@ func resolveCalcInternal(calc string, scope string, state *asmTransformState) []
 		stackValue += funcStackOffset
 
 		if stackValue != 0 {
+			log.Println("ERROR: In calc resolving, RPN attached hereafter:")
 			spew.Dump(shunted)
-			log.Fatalln("ERROR: Calc instruction produced invalid stack. This is *probably* a compiler bug. (Stack value: " + strconv.Itoa(stackValue) + ")")
+			log.Fatalln("ERROR: Calc-resoved instructions would produce invalid stack. This is either a compiler bug or an invalid calc-string (e.g. invalid operators or function calls). (Stack value: " + strconv.Itoa(stackValue) + "; should be 0)")
 		}
 
 		// Set scope of "parent" (calc instruction) on all generated "child" instructions
@@ -332,14 +301,8 @@ func setRegToLiteralFromString(calc, reg string) []*asmCmd {
 		&asmCmd{
 			ins: "SETREG",
 			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        reg,
-				},
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "0x" + strconv.FormatInt(calcValue, 16),
-				},
+				rawAsmParam(reg),
+				rawAsmParam("0x" + strconv.FormatInt(calcValue, 16)),
 			},
 			comment: " CALC: literal " + calc,
 		},
@@ -357,27 +320,11 @@ func callCalcFunc(funcName string, paramCount int, state *asmTransformState, las
 
 		// Special function $ -> Dereference (get value behind address)
 
-		// Mark value as directly-addressed since we never know when someone is going to dereference this pointer
-		// Note: This only works for variables, globals are never directly-addressed
-		// However, single-layer pointers for globals can be dereferenced at compile-time and evicted back to RAM if necessary
-		// Two-layer pointers to globals are thus not officially supported
-		retval = append(retval, &asmCmd{
-			ins: "__SET_DIRECT",
-			params: []*asmParam{
-				&asmParam{
-					// TODO
-				},
-			},
-		})
-
 		// Retrieve address value
 		retval = append(retval, &asmCmd{
 			ins: "POP",
 			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "F",
-				},
+				rawAsmParam("F"),
 			},
 		})
 
@@ -385,14 +332,8 @@ func callCalcFunc(funcName string, paramCount int, state *asmTransformState, las
 		retval = append(retval, &asmCmd{
 			ins: "LOAD",
 			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "F",
-				},
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "F",
-				},
+				rawAsmParam("F"),
+				rawAsmParam("F"),
 			},
 		})
 
@@ -400,10 +341,7 @@ func callCalcFunc(funcName string, paramCount int, state *asmTransformState, las
 		retval = append(retval, &asmCmd{
 			ins: "PUSH",
 			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "F",
-				},
+				rawAsmParam("F"),
 			},
 		})
 
@@ -422,11 +360,17 @@ func callCalcFunc(funcName string, paramCount int, state *asmTransformState, las
 		retval = append(retval, &asmCmd{
 			ins: "POP",
 			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "F",
-				},
+				rawAsmParam("F"),
 			},
+		})
+
+		// Mark value as directly-addressed since we never know when someone is going to dereference this pointer
+		// Note: This only works for variables, globals are never directly-addressed
+		// However, single-layer pointers for globals can be dereferenced at compile-time and evicted back to RAM if necessary
+		// Two-layer pointers to globals are thus not officially supported
+		retval = append(retval, &asmCmd{
+			ins:                 "__SET_DIRECT",
+			scopeAnnotationName: lastVarName,
 		})
 
 		retval = append(retval, &asmCmd{
@@ -436,10 +380,7 @@ func callCalcFunc(funcName string, paramCount int, state *asmTransformState, las
 					asmParamType: asmParamTypeVarAddr,
 					value:        lastVarName,
 				},
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "F",
-				},
+				rawAsmParam("F"),
 			},
 		})
 
@@ -447,14 +388,11 @@ func callCalcFunc(funcName string, paramCount int, state *asmTransformState, las
 		retval = append(retval, &asmCmd{
 			ins: "PUSH",
 			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "F",
-				},
+				rawAsmParam("F"),
 			},
 		})
 
-		retval[1].fixGlobalAndStringParamTypes(state)
+		retval[2].fixGlobalAndStringParamTypes(state)
 
 	} else {
 
@@ -494,10 +432,7 @@ func callCalcFunc(funcName string, paramCount int, state *asmTransformState, las
 		retval = append(retval, &asmCmd{
 			ins: "CALL",
 			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "." + function,
-				},
+				rawAsmParam("." + function),
 			},
 		})
 
@@ -505,10 +440,7 @@ func callCalcFunc(funcName string, paramCount int, state *asmTransformState, las
 		retval = append(retval, &asmCmd{
 			ins: "PUSH",
 			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "A",
-				},
+				rawAsmParam("A"),
 			},
 		})
 

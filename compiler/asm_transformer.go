@@ -10,73 +10,6 @@ import (
 	"github.com/alecthomas/participle/lexer"
 )
 
-const asmParamTypeRaw = 0
-const asmParamTypeVarRead = 1
-const asmParamTypeVarWrite = 2
-const asmParamTypeCalc = 4
-const asmParamTypeGlobalWrite = 8
-const asmParamTypeGlobalRead = 16
-const asmParamTypeScopeVarCount = 32
-const asmParamTypeStringRead = 64
-const asmParamTypeVarAddr = 128
-const asmParamTypeStringAddr = 256
-const asmParamTypeGlobalAddr = 512
-
-type asmCmd struct {
-	ins    string
-	params []*asmParam
-
-	scope string
-
-	// For __ASSUMESCOPE and __FORCESCOPE only
-	scopeAnnotationName     string
-	scopeAnnotationRegister int
-
-	comment     string
-	printIndent int
-
-	originalAsmCmdString string
-	calcAsmOutputVerbose string
-}
-
-type asmParam struct {
-	asmParamType int
-	value        string
-
-	// For resolving globals and strings
-	addrCache int
-}
-
-type asmTransformState struct {
-	currentFunction           string
-	currentScopeVariableCount int
-
-	functionTableVar  []string
-	functionTableVoid []string
-
-	globalMemoryMap map[string]int
-	maxDataAddr     int
-
-	variableMap map[string][]asmVar
-	stringMap   map[string]int
-
-	specificInitializationAsm []*asmCmd
-	binData                   []int16
-
-	scopeRegisterAssignment map[string]int
-	scopeRegisterDirty      map[int]bool
-
-	printIndent int
-
-	verbose bool
-}
-
-type asmVar struct {
-	name        string
-	orderNumber int
-	isGlobal    bool
-}
-
 func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCmd {
 	newAsm := make([]*asmCmd, 0)
 
@@ -100,10 +33,7 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 		newAsm = append(newAsm, &asmCmd{
 			ins: "POP",
 			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "E",
-				},
+				rawAsmParam("E"),
 			},
 		})
 
@@ -118,10 +48,7 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 		newAsm = append(newAsm, &asmCmd{
 			ins: "PUSH",
 			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "E",
-				},
+				rawAsmParam("E"),
 			},
 		})
 
@@ -210,13 +137,24 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 			log.Fatalln("Empty 'else' block not allowed (Source: " + astNode.Pos.String() + ")")
 		}*/
 
+		// Flush scope now to start conditional body "clean"
+		newAsm = append(newAsm, &asmCmd{
+			ins:   "__FLUSHSCOPE",
+			scope: state.currentFunction,
+		})
+
+		newAsm = append(newAsm, &asmCmd{
+			ins:   "__CLEARSCOPE",
+			scope: state.currentFunction,
+		})
+
+		// Conditional jump to else block
+		// Note: Technically, this could check out variables again and make our __FLUSHSCOPE above useless
+		// However, variables checked out in a pure calc context are always read-only, thus never allowing a dirty checkout hereafter
 		newAsm = append(newAsm, &asmCmd{
 			ins: "JMPEZ",
 			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "." + getConditionalLabelElse(*astNode),
-				},
+				rawAsmParam("." + getConditionalLabelElse(*astNode)),
 				&asmParam{
 					asmParamType: asmParamTypeCalc,
 					value:        astNode.Condition,
@@ -225,13 +163,22 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 			printIndent: -1,
 		})
 
-		ifEndAsm := "JMP ." + getConditionalLabelEnd(*astNode)
+		// Do a __FLUSHSCOPE before the if-jump to avoid clearing variables that have not been evicted on jump to cond-end
+		ifEndAsm := "__FLUSHSCOPE\nJMP ." + getConditionalLabelEnd(*astNode)
 
 		elseStartAsm := "." + getConditionalLabelElse(*astNode)
 		elseStartAsm += " __LABEL_SET"
 
+		clearscopeString := "_asm { __CLEARSCOPE }"
+
 		astNode.BodyElse = append([]*Expression{
 			makeAsmExpression(ifEndAsm),
+
+			// Start else block "clean" (flush is happening above, before condition calc and check)
+			&Expression{
+				Asm: &clearscopeString,
+			},
+
 			makeAsmExpression(elseStartAsm),
 		}, astNode.BodyElse...)
 
@@ -262,24 +209,15 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 					asmParamType: asmParamTypeCalc,
 					value:        astNode.Condition,
 				},
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "F",
-				},
+				rawAsmParam("F"),
 			},
 		})
 
 		newAsm = append(newAsm, &asmCmd{
 			ins: "JMPEZ",
 			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "." + getWhileLoopLabelEnd(*astNode),
-				},
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "F",
-				},
+				rawAsmParam("." + getWhileLoopLabelEnd(*astNode)),
+				rawAsmParam("F"),
 			},
 		})
 
@@ -330,10 +268,7 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 				ins: "MOV",
 				params: []*asmParam{
 					runtimeValueToAsmParam(astNode.Return),
-					&asmParam{
-						asmParamType: asmParamTypeRaw,
-						value:        "A",
-					},
+					rawAsmParam("A"),
 				},
 				scope: state.currentFunction,
 			})
@@ -403,10 +338,7 @@ func asmForNodePost(nodeInterface interface{}, state *asmTransformState) []*asmC
 		retval = append(retval, &asmCmd{
 			ins: "FAULT",
 			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        FAULT_NO_RETURN,
-				},
+				rawAsmParam(FAULT_NO_RETURN),
 			},
 			scope:   state.currentFunction,
 			comment: " Ending function: " + node.Name,
@@ -427,6 +359,15 @@ func asmForNodePost(nodeInterface interface{}, state *asmTransformState) []*asmC
 		state.printIndent--
 
 		return []*asmCmd{
+			&asmCmd{
+				ins:   "__FLUSHSCOPE",
+				scope: state.currentFunction,
+			},
+			&asmCmd{
+				// Clear scope on exit of else
+				ins:   "__CLEARSCOPE",
+				scope: state.currentFunction,
+			},
 			&asmCmd{
 				ins:         fmt.Sprintf(".%s __LABEL_SET", getConditionalLabelEnd(*node)),
 				printIndent: state.printIndent + 1,

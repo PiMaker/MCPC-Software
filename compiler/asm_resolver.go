@@ -4,34 +4,58 @@ import (
 	"fmt"
 	"log"
 	"strconv"
-	"strings"
-
-	"github.com/mileusna/conditional"
-
-	"github.com/logrusorgru/aurora"
 )
-
-const AssigneableRegisters = 4
 
 func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCmd {
 	output := make([]*asmCmd, 0)
 
 	// Meta-instructions
 	// Return early if they are not reflected in output ASM
+	// (We return the original instruction for verbose printing, it will not actually show up in raw asm output)
 	if cmd.ins == "__CLEARSCOPE" {
 		// This fixes so many issues but is horribly inperformant
 		// Nevermind though, sprinkle that shit all over
 		// I'm not debugging my algorithm any further my dudes
 		// Just liberally put workarounds all over the place
+		// (Also used for scope initialization BTW)
 		state.scopeRegisterAssignment = make(map[string]int, 0)
 		state.scopeRegisterDirty = make(map[int]bool, AssigneableRegisters)
-		return output
+		state.scopeVariableDirectMarks = make(map[string]bool, 0)
+		return append([]*asmCmd{cmd}, output...)
 	}
 
 	if cmd.ins == "__ASSUMESCOPE" {
 		state.scopeRegisterAssignment[cmd.scopeAnnotationName] = cmd.scopeAnnotationRegister
 		state.scopeRegisterDirty[cmd.scopeAnnotationRegister] = true
-		return output
+		return append([]*asmCmd{cmd}, output...)
+	}
+
+	if cmd.ins == "__SET_DIRECT" {
+		asmVar := getAsmVar(cmd.scopeAnnotationName, cmd.scope, state)
+		if asmVar.isGlobal {
+			// Variables are implicitly directly-assigned, no further action needed
+			return append([]*asmCmd{cmd}, output...)
+		}
+
+		// Mark variable name as directly-assigned in current scope
+		state.scopeVariableDirectMarks[cmd.scopeAnnotationName] = true
+
+		// Check if variable currently checked out dirty, if so immediately evict back
+		for varName, varReg := range state.scopeRegisterAssignment {
+			if varName == cmd.scopeAnnotationName {
+				// Checked out
+				if state.scopeRegisterDirty[varReg] {
+					// Dirty, evict and reset dirty state
+					// (Not the checked out state however, we don't deliberately clear the register)
+					evictionAsm := evictRegister(varReg, cmd.scope, state)
+					evictionAsm[0].comment += " (reg_alloc: __SET_DIRECT forced eviction)"
+					output = append(output, evictionAsm...)
+					break // Stop searching
+				}
+			}
+		}
+
+		return append([]*asmCmd{cmd}, output...)
 	}
 
 	if cmd.ins == "__FLUSHSCOPE" {
@@ -51,7 +75,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 			}
 		}
 		state.scopeRegisterDirty = make(map[int]bool, AssigneableRegisters)
-		return output
+		return append([]*asmCmd{cmd}, output...)
 	}
 
 	if cmd.ins == "__FLUSHGLOBALS" {
@@ -70,7 +94,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 			}
 		}
 		state.scopeRegisterDirty = make(map[int]bool, AssigneableRegisters)
-		return output
+		return append([]*asmCmd{cmd}, output...)
 	}
 
 	if cmd.ins == "__FORCESCOPE" {
@@ -98,7 +122,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 			if varName == cmd.scopeAnnotationName {
 				if varReg == cmd.scopeAnnotationRegister {
 					// Variable already present, nothing to do
-					return output
+					return append([]*asmCmd{cmd}, output...)
 				}
 
 				// Variable present, but in wrong register - check target register
@@ -152,7 +176,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 					state.scopeRegisterAssignment[*otherName] = varReg
 				}
 
-				return output
+				return append([]*asmCmd{cmd}, output...)
 			}
 		}
 
@@ -169,7 +193,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 		// Finally load variable into correct register
 		output = append(output, varFromHeap(getAsmVar(cmd.scopeAnnotationName, cmd.scope, state), toReg(cmd.scopeAnnotationRegister), state, cmd.scope)...)
 
-		return output
+		return append([]*asmCmd{cmd}, output...)
 	}
 
 	// Handle calc parameters first to avoid glitches with scoped variable assignment later on
@@ -178,6 +202,9 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 	for _, p := range cmd.params {
 		if p.asmParamType == asmParamTypeCalc {
 			if processedCalc {
+				// This would be very bad to allow, since a calc expression prepended to a regular asmCmd assumes full control over calc registers (especially F)
+				// Thus, two calc-resolvings for one asmCmd would overwrite register F with whichever paramTypeCalc parameters is resolved later
+				// This scenario should however never happen (in theory anyway)
 				log.Fatalln("ERROR: Two calc parameters found in one meta-assembly instruction, invalid state.")
 			}
 
@@ -203,6 +230,8 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 		return append(output, cmd)
 	}
 
+	postCmdAsm := make([]*asmCmd, 0)
+
 	// Parameter translation (meta asm (variables/calc expressions)->real asm (registers/literals))
 	cmdAssignedRegisters := make([]int, 0)
 	for _, p := range cmd.params {
@@ -214,7 +243,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 		case asmParamTypeStringRead:
 			// This is always a pointer to the start of the specfied string data
 			p.asmParamType = asmParamTypeCalc
-			p.value = strconv.Itoa(state.stringMap[p.value])
+			p.value = strconv.Itoa(state.stringMap["global_"+p.value])
 
 		case asmParamTypeCalc:
 			log.Fatalln("ERROR: Calc parameter was not resolved early. This is most likely a compiler error.")
@@ -236,32 +265,17 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 				&asmCmd{
 					ins: "SETREG",
 					params: []*asmParam{
-						&asmParam{
-							asmParamType: asmParamTypeRaw,
-							value:        "G",
-						},
-						&asmParam{
-							asmParamType: asmParamTypeRaw,
-							value:        fmt.Sprintf("0x%x", getAsmVar(p.value, cmd.scope, state).orderNumber),
-						},
+						rawAsmParam("G"),
+						rawAsmParam(fmt.Sprintf("0x%x", getAsmVar(p.value, cmd.scope, state).orderNumber)),
 					},
 					scope: cmd.scope,
 				},
 				&asmCmd{
 					ins: "SUB",
 					params: []*asmParam{
-						&asmParam{
-							asmParamType: asmParamTypeRaw,
-							value:        "H",
-						},
-						&asmParam{
-							asmParamType: asmParamTypeRaw,
-							value:        "F", // Output
-						},
-						&asmParam{
-							asmParamType: asmParamTypeRaw,
-							value:        "G",
-						},
+						rawAsmParam("H"),
+						rawAsmParam("F"), // Output
+						rawAsmParam("G"),
 					},
 					scope: cmd.scope,
 				}}...)
@@ -285,7 +299,15 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 
 					// Mark dirty on write
 					if p.asmParamType == asmParamTypeVarWrite || p.asmParamType == asmParamTypeGlobalWrite {
-						state.scopeRegisterDirty[varReg] = true
+						// Skip this and instead insert a write-back directly after if we are dealing with a directly-assigned variable or global
+						directlyAssigned, ok := state.scopeVariableDirectMarks[asmVar.name]
+						if p.asmParamType == asmParamTypeGlobalWrite || (ok && directlyAssigned) {
+							state.scopeRegisterDirty[varReg] = false
+							postCmdAsm = append(evictRegister(varReg, cmd.scope, state), postCmdAsm...)
+							postCmdAsm[0].comment += " (reg_alloc: directly assigned, evicting back immediately)"
+						} else {
+							state.scopeRegisterDirty[varReg] = true
+						}
 					}
 
 					found = true
@@ -326,14 +348,9 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 			p.value = toReg(reg)
 			cmdAssignedRegisters = append(cmdAssignedRegisters, reg)
 
-			// If marked dirty, flush to VarHeap before loading new value
+			// If marked dirty, evict to VarHeap before loading new value
 			if state.scopeRegisterDirty[reg] {
-				nameForReg := getNameForRegister(reg, state)
-				if nameForReg == nil {
-					log.Fatalln("ERROR: Variable<>Register assignment failure; Internal error, scopeRegisterAssignment map inconsistent with register dirty state.")
-				}
-
-				output = append(output, varToHeap(getAsmVar(*nameForReg, cmd.scope, state), toReg(reg), state, cmd.scope)...)
+				output = append(output, evictRegister(reg, cmd.scope, state)...)
 			}
 
 			// Check if anything was checked out into the assigned register beforehand, and if so, remove it from the assignment map
@@ -348,9 +365,20 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 				delete(state.scopeRegisterAssignment, tr)
 			}
 
+			// Update state (right now, since next step calls evictRegister in some circumstances)
+			state.scopeRegisterAssignment[asmVar.name] = reg
+
 			// Set dirty on write
 			if p.asmParamType == asmParamTypeVarWrite || p.asmParamType == asmParamTypeGlobalWrite {
-				state.scopeRegisterDirty[reg] = true
+				// Skip this and instead insert a write-back directly after if we are dealing with a directly-assigned variable or global
+				directlyAssigned, ok := state.scopeVariableDirectMarks[asmVar.name]
+				if p.asmParamType == asmParamTypeGlobalWrite || (ok && directlyAssigned) {
+					state.scopeRegisterDirty[reg] = false
+					postCmdAsm = append(evictRegister(reg, cmd.scope, state), postCmdAsm...)
+					postCmdAsm[0].comment += " (reg_alloc: directly assigned, evicting back immediately)"
+				} else {
+					state.scopeRegisterDirty[reg] = true
+				}
 			}
 
 			if state.scopeRegisterDirty[reg] {
@@ -364,379 +392,11 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 				output = append(output, varFromHeap(asmVar, toReg(reg), state, cmd.scope)...)
 			}
 
-			// Update state
-			state.scopeRegisterAssignment[asmVar.name] = reg
-
 			// Set paramType to raw last to avoid errors above
 			p.asmParamType = asmParamTypeRaw
 		}
 	}
 
-	// Note to self: Any change above here but below for-loop should be reflected in early exits as well (especially calc early-out)
-	return append(output, cmd)
-}
-
-func rawAsmParam(content string) *asmParam {
-	return &asmParam{
-		asmParamType: asmParamTypeRaw,
-		value:        content,
-	}
-}
-
-func containsInt(slice []int, value int) bool {
-	for _, v := range slice {
-		if v == value {
-			return true
-		}
-	}
-
-	return false
-}
-
-func getNameForRegister(reg int, state *asmTransformState) *string {
-	for name, assignedReg := range state.scopeRegisterAssignment {
-		if assignedReg == reg {
-			return &name
-		}
-	}
-
-	return nil
-}
-
-func getAsmVar(name string, scope string, state *asmTransformState) *asmVar {
-	var avar *asmVar
-	for _, v := range state.variableMap[scope] {
-		if v.name == name {
-			avar = &v
-			break
-		}
-	}
-
-	if avar == nil {
-		// Search for global if locally scoped variabled couldn't be found
-		// This is safe, because it is guaranteed at this stage that no variable can be named the same as any given global
-		for gname, addr := range state.globalMemoryMap {
-			if gname == "global_"+name {
-				avar = &asmVar{
-					name:        name,
-					orderNumber: addr,
-					isGlobal:    true,
-				}
-			}
-		}
-
-		if avar == nil {
-			//panic(name)
-			log.Fatalf("ERROR: Invalid variable name in resolve: %s (scope: %s)\n", name, scope)
-		}
-	}
-
-	return avar
-}
-
-func varToHeap(v *asmVar, register string, state *asmTransformState, cmdScope string) []*asmCmd {
-	if v.isGlobal {
-		return []*asmCmd{
-			&asmCmd{
-				ins: "SETREG",
-				params: []*asmParam{
-					&asmParam{
-						asmParamType: asmParamTypeRaw,
-						value:        "G",
-					},
-					&asmParam{
-						asmParamType: asmParamTypeRaw,
-						value:        fmt.Sprintf("0x%x", v.orderNumber), // orderNumber of global is memory address directly
-					},
-				},
-				scope: cmdScope,
-			},
-			&asmCmd{
-				ins: "STOR",
-				params: []*asmParam{
-					&asmParam{
-						asmParamType: asmParamTypeRaw,
-						value:        register,
-					},
-					&asmParam{
-						asmParamType: asmParamTypeRaw,
-						value:        "G",
-					},
-				},
-				scope: cmdScope,
-			},
-		}
-	}
-
-	return []*asmCmd{
-		&asmCmd{
-			ins: "SETREG",
-			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "G",
-				},
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        fmt.Sprintf("0x%x", v.orderNumber),
-				},
-			},
-			scope: cmdScope,
-		},
-		&asmCmd{
-			ins: "SUB",
-			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "H",
-				},
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "G",
-				},
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "G",
-				},
-			},
-			scope: cmdScope,
-		},
-		&asmCmd{
-			ins: "STOR",
-			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        register,
-				},
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "G",
-				},
-			},
-			scope: cmdScope,
-		},
-	}
-
-	/*
-		; Non-global case:
-		SETREG G <orderNumber>
-		SUB H G G
-		STOR <register> G
-
-		; Global case
-		SETREG G <orderNumber aka address>
-		STOR <register> G
-	*/
-}
-
-func varFromHeap(v *asmVar, register string, state *asmTransformState, cmdScope string) []*asmCmd {
-	if v.isGlobal {
-		// For doc on global handling see varToHeap
-		return []*asmCmd{
-			&asmCmd{
-				ins: "SETREG",
-				params: []*asmParam{
-					&asmParam{
-						asmParamType: asmParamTypeRaw,
-						value:        "G",
-					},
-					&asmParam{
-						asmParamType: asmParamTypeRaw,
-						value:        fmt.Sprintf("0x%x", v.orderNumber),
-					},
-				},
-				scope: cmdScope,
-			},
-			&asmCmd{
-				ins: "LOAD",
-				params: []*asmParam{
-					&asmParam{
-						asmParamType: asmParamTypeRaw,
-						value:        register,
-					},
-					&asmParam{
-						asmParamType: asmParamTypeRaw,
-						value:        "G",
-					},
-				},
-				scope: cmdScope,
-			},
-		}
-	}
-
-	return []*asmCmd{
-		&asmCmd{
-			ins: "SETREG",
-			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "G",
-				},
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        fmt.Sprintf("0x%x", v.orderNumber),
-				},
-			},
-			scope: cmdScope,
-		},
-		&asmCmd{
-			ins: "SUB",
-			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "H",
-				},
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "G",
-				},
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "G",
-				},
-			},
-			scope: cmdScope,
-		},
-		&asmCmd{
-			ins: "LOAD",
-			params: []*asmParam{
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        register,
-				},
-				&asmParam{
-					asmParamType: asmParamTypeRaw,
-					value:        "G",
-				},
-			},
-			scope: cmdScope,
-		},
-	}
-
-	/*
-		SETREG G <orderNumber>
-		SUB H G G
-		LOAD <register> G
-	*/
-}
-
-// Fixes globals and strings incorrectly being detected as variable identifiers
-func (cmd *asmCmd) fixGlobalAndStringParamTypes(state *asmTransformState) {
-	if cmd.params != nil && len(cmd.params) > 0 {
-		for _, p := range cmd.params {
-			if p.asmParamType == asmParamTypeVarRead || p.asmParamType == asmParamTypeVarAddr {
-				for global, addr := range state.globalMemoryMap {
-					if global == "global_"+p.value {
-						p.asmParamType = conditional.Int(p.asmParamType == asmParamTypeVarRead, asmParamTypeGlobalRead, asmParamTypeGlobalAddr)
-						p.addrCache = addr
-						break
-					}
-				}
-
-				for str, addr := range state.stringMap {
-					if str == "global_"+p.value {
-						p.asmParamType = conditional.Int(p.asmParamType == asmParamTypeVarRead, asmParamTypeStringRead, asmParamTypeStringAddr)
-						p.addrCache = addr
-						break
-					}
-				}
-			} else if p.asmParamType == asmParamTypeVarWrite {
-				for global, addr := range state.globalMemoryMap {
-					if global == "global_"+p.value {
-						p.asmParamType = asmParamTypeGlobalWrite
-						p.addrCache = addr
-						break
-					}
-				}
-
-				for str := range state.stringMap {
-					if str == p.value {
-						log.Fatalf("ERROR: Cannot write to a string variable: '%s'", p.value)
-					}
-				}
-			}
-		}
-	}
-}
-
-// Generates valid MCPC assembly from an asmCmd
-func (cmd *asmCmd) asmString() string {
-	retval := cmd.ins
-
-	if cmd.params != nil && len(cmd.params) > 0 {
-		for _, p := range cmd.params {
-			if p.asmParamType != asmParamTypeRaw {
-				log.Fatalf("Unconverted asmParam found (type: %d, value: %v). How did you get here?\n", p.asmParamType, p)
-			}
-
-			retval += " " + p.value
-		}
-	}
-
-	if cmd.comment != "" {
-		retval += fmt.Sprintf(" ;%s", strings.TrimRight(cmd.comment, "\n"))
-	}
-
-	return retval
-}
-
-// Debug information for an asmCmd in pre-formatted string form
-func (cmd *asmCmd) String() string {
-	return cmd.StringWithIndent(0)
-}
-
-func (cmd *asmCmd) StringWithIndent(i int) string {
-	retval := aurora.Blue(cmd.ins).String()
-
-	if cmd.params != nil && len(cmd.params) > 0 {
-		for _, p := range cmd.params {
-			formatted := p.value
-			switch p.asmParamType {
-			case asmParamTypeCalc:
-				formatted = "[" + formatted + "]"
-			case asmParamTypeGlobalRead:
-				formatted = fmt.Sprintf("g(%s,mode=r,addr=%d)", formatted, p.addrCache)
-			case asmParamTypeGlobalAddr:
-				formatted = fmt.Sprintf("g(%s,mode=a,addr=%d)", formatted, p.addrCache)
-			case asmParamTypeGlobalWrite:
-				formatted = fmt.Sprintf("g(%s,mode=w,addr=%d)", formatted, p.addrCache)
-			case asmParamTypeVarRead:
-				formatted = "var(" + formatted + ",mode=r)"
-			case asmParamTypeVarWrite:
-				formatted = "var(" + formatted + ",mode=w)"
-			case asmParamTypeVarAddr:
-				formatted = "var(" + formatted + ",mode=a)"
-			case asmParamTypeStringAddr:
-				formatted = fmt.Sprintf("s(%s,mode=a,addr=%d)", formatted, p.addrCache)
-			case asmParamTypeStringRead:
-				formatted = fmt.Sprintf("s(%s,mode=r,addr=%d)", formatted, p.addrCache)
-			case asmParamTypeScopeVarCount:
-				formatted = "varCount(scope=" + cmd.scope + ")"
-			}
-
-			if p.asmParamType == asmParamTypeRaw {
-				retval += " " + aurora.Red(formatted).String()
-			} else {
-				retval += " " + aurora.Magenta(formatted).String()
-			}
-		}
-	}
-
-	if cmd.ins == "__ASSUMESCOPE" || cmd.ins == "__FORCESCOPE" {
-		retval += aurora.Brown(fmt.Sprintf(" {var: %s, reg: %d}", cmd.scopeAnnotationName, cmd.scopeAnnotationRegister)).String()
-	}
-
-	if cmd.comment != "" {
-		retval += aurora.Green(fmt.Sprintf(" ;%s", cmd.comment)).String()
-	}
-
-	for ind := 0; ind < cmd.printIndent; ind++ {
-		retval = "  " + retval
-	}
-
-	for ind := 0; ind < i; ind++ {
-		retval = "    " + retval
-	}
-
-	return retval
+	// Note to self: Any change above here but below for-loop should probably be reflected in early exits as well (especially calc early-out)
+	return append(output, append([]*asmCmd{cmd}, postCmdAsm...)...)
 }
