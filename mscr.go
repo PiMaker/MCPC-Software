@@ -18,7 +18,7 @@ under certain conditions.
 See https://github.com/PiMaker/mscr/blob/master/LICENSE for more.`
 
 func main() {
-	inputFile, outputFile, bootloader, verbose, version := processArgs()
+	inputFile, outputFile, bootloader, verbose, version, optimizeDisable := processArgs()
 
 	if version {
 		fmt.Println("M-Script compiler v" + compiler.CompilerVersion)
@@ -36,7 +36,7 @@ func main() {
 
 	compiler.Preprocess(inputFile, tempFile)
 	ast := compiler.GenerateAST(tempFile)
-	asm := []byte(ast.GenerateASM(bootloader, verbose))
+	asm := []byte(ast.GenerateASM(bootloader, verbose, optimizeDisable))
 
 	for _, ch := range ast.CommentHeaders {
 		asm = append([]byte(ch+"\r\n"), asm...)
@@ -49,21 +49,25 @@ func main() {
 	log.Printf("Compilation completed, %d bytes written\n", len(asm))
 }
 
-func processArgs() (inputFile, outputFile string, bootloader, verbose, version bool) {
+func processArgs() (inputFile, outputFile string, bootloader, verbose, version, optimizeDisable bool) {
 	verbose = false
 	bootloader = false
 	version = false
+	optimizeDisable = false
 	inputFile = ""
 	outputFile = ""
 
 	for i := 1; i < len(os.Args); i++ {
-		if strings.HasPrefix(os.Args[i], "--") {
-			if os.Args[i] == "--verbose" {
+		arg := strings.ToLower(os.Args[i])
+		if strings.HasPrefix(arg, "--") {
+			if arg == "--verbose" {
 				verbose = true
-			} else if os.Args[i] == "--bootloader" {
+			} else if arg == "--bootloader" {
 				bootloader = true
-			} else if os.Args[i] == "--version" {
+			} else if arg == "--version" {
 				version = true
+			} else if arg == "--optimizedisable" {
+				optimizeDisable = true
 			} else {
 				log.Println("WARN: Ignoring unknown command line flag: " + os.Args[i])
 			}

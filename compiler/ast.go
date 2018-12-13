@@ -10,7 +10,7 @@ import (
 	"github.com/logrusorgru/aurora"
 )
 
-func (ast *AST) GenerateASM(bootloader, verbose bool) string {
+func (ast *AST) GenerateASM(bootloader, verbose, optimizeDisable bool) string {
 
 	if bootloader {
 		log.Println("! Using bootloader mode !")
@@ -238,6 +238,13 @@ func (ast *AST) GenerateASM(bootloader, verbose bool) string {
 
 	if !isResolved(asm) {
 		log.Fatalln("ERROR: Meta-ASM has not been fully resolved. This is a compiler bug, sorry.")
+	}
+
+	// Optimize generated asm
+	if optimizeDisable {
+		log.Println("Optimization disabled.")
+	} else {
+		asm = optimizeAsmAll(asm)
 	}
 
 	// DEBUG

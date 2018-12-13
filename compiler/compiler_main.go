@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	gppbin "github.com/PiMaker/mscr/gpp-bin"
+	gppbin "github.com/PiMaker/mscr/gppbin"
 
 	"github.com/alecthomas/participle"
 	"github.com/alecthomas/participle/lexer"
