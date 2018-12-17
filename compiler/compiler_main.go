@@ -20,7 +20,7 @@ import (
 const CompilerVersion = "0.2.1"
 
 const LexerRegex = `(?s)(\s+)|` +
-	`(?P<Int>(?:0x)?\d+)|` +
+	`(?P<Int>(?:(?:0(x|X))[0-9a-fA-F]+|\d+))|` +
 	`(?P<String>"(?:[^"\\]|\\.)*")|` +
 	`(?P<Eval>\[.*?\])|` +
 	`(?P<ASM>_asm\s*\{.*?\})|` +
