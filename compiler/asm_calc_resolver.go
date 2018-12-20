@@ -365,9 +365,7 @@ func callCalcFunc(funcName string, paramCount int, state *asmTransformState, las
 		})
 
 		// Mark value as directly-addressed since we never know when someone is going to dereference this pointer
-		// Note: This only works for variables, globals are never directly-addressed
-		// However, single-layer pointers for globals can be dereferenced at compile-time and evicted back to RAM if necessary
-		// Two-layer pointers to globals are thus not officially supported
+		// Note: This only does something for variables, globals are always directly-addressed
 		retval = append(retval, &asmCmd{
 			ins:                 "__SET_DIRECT",
 			scopeAnnotationName: lastVarName,

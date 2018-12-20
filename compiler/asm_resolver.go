@@ -234,11 +234,18 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 
 	// Parameter translation (meta asm (variables/calc expressions)->real asm (registers/literals))
 	cmdAssignedRegisters := make([]int, 0)
-	for _, p := range cmd.params {
+	for paramNum, p := range cmd.params {
 		switch p.asmParamType {
 		case asmParamTypeScopeVarCount:
-			p.asmParamType = asmParamTypeCalc
-			p.value = fmt.Sprintf("[%d]", len(state.variableMap[p.value]))
+			if cmd.ins == "SETREG" && paramNum == 1 && cmd.params[0].asmParamType == asmParamTypeRaw {
+				// Special case for which we do not need any calcs
+				p.asmParamType = asmParamTypeRaw
+				p.value = fmt.Sprintf("0x%x", len(state.variableMap[p.value]))
+			} else {
+				// General case, let recursive resolving take care of it
+				p.asmParamType = asmParamTypeCalc
+				p.value = fmt.Sprintf("[%d]", len(state.variableMap[p.value]))
+			}
 
 		case asmParamTypeStringRead:
 			// This is always a pointer to the start of the specfied string data
@@ -289,38 +296,38 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 			asmVar := getAsmVar(p.value, cmd.scope, state)
 
 			// Check if variable already checked out into register
-			found := false
-			for varName, varReg := range state.scopeRegisterAssignment {
-				if varName == asmVar.name {
-					// Found
-					p.value = toReg(varReg)
 
-					cmd.comment += fmt.Sprintf(" (reg_alloc: var found checked out in %d)", varReg)
+			directlyAssigned, ok := state.scopeVariableDirectMarks[asmVar.name]
+			if p.asmParamType == asmParamTypeGlobalWrite || p.asmParamType == asmParamTypeGlobalRead || (ok && directlyAssigned) {
+				// If directly assigned, do not search for checked out var in registers, since it won't be up-to-date anyway
+				cmd.comment += " (reg_alloc: skipping scope search, directly-assigned)"
+			} else {
+				found := false
+				for varName, varReg := range state.scopeRegisterAssignment {
+					if varName == asmVar.name {
+						// Found
+						p.value = toReg(varReg)
 
-					// Mark dirty on write
-					if p.asmParamType == asmParamTypeVarWrite || p.asmParamType == asmParamTypeGlobalWrite {
-						// Skip this and instead insert a write-back directly after if we are dealing with a directly-assigned variable or global
-						directlyAssigned, ok := state.scopeVariableDirectMarks[asmVar.name]
-						if p.asmParamType == asmParamTypeGlobalWrite || (ok && directlyAssigned) {
-							state.scopeRegisterDirty[varReg] = false
-							postCmdAsm = append(evictRegister(varReg, cmd.scope, state), postCmdAsm...)
-							postCmdAsm[0].comment += " (reg_alloc: directly assigned, evicting back immediately)"
-						} else {
+						cmd.comment += fmt.Sprintf(" (reg_alloc: var found checked out in %d)", varReg)
+
+						// Mark dirty on write
+						if p.asmParamType == asmParamTypeVarWrite || p.asmParamType == asmParamTypeGlobalWrite {
+							// We know it's not a directly-assigned var or global, since otherwise we wouldn't even bother searching
 							state.scopeRegisterDirty[varReg] = true
 						}
-					}
 
-					found = true
+						found = true
+					}
+				}
+
+				if found {
+					p.asmParamType = asmParamTypeRaw
+					break
 				}
 			}
 
-			if found {
-				p.asmParamType = asmParamTypeRaw
-				break
-			}
-
 			// Assign register to variable
-			// TODO (maybe): Analyze which register has been checked out the longest ago and use that?
+			// TODO (maybe): Analyze which register has been checked out the longest ago and use that? Better heuristic in general?
 			reg := asmVar.orderNumber % AssigneableRegisters
 
 			// First, check if we have a random free register available
@@ -358,6 +365,8 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 			for otherVar, otherReg := range state.scopeRegisterAssignment {
 				if otherReg == reg {
 					toRemove = append(toRemove, otherVar)
+					state.scopeRegisterDirty[reg] = false
+					break
 				}
 			}
 

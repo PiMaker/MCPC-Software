@@ -55,10 +55,12 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 		state.printIndent++
 
 	case *FunctionCall:
-		// Function call is only used when the return value is ignored! Otherwise function calls are handled as calc expressions!
+		// Function call is only used when the return value is ignored! Otherwise function calls are handled as calc expressions! (see asm_calc_resolver.go)
 
-		// Special handling for _reg_assign
+		// Special handling for meta-functions
 		if astNode.FunctionName == "_reg_assign" {
+			// _reg_assign forcibly assigns a variable to a register
+			// Useful for _asm blocks
 			if len(astNode.Parameters) != 2 {
 				log.Fatalln("ERROR: A call to _reg_assign must have two parameters (register, variable). Source: " + astNode.Pos.String())
 			}
@@ -82,8 +84,40 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 			})
 
 			break
-		} else if astNode.FunctionName == "$" || astNode.FunctionName == "$$" {
-			log.Fatalln("ERROR: Cannot use special functions '$' and '$$' in non-value context (e.g. calling $ or $$ as a void function standalone. Use calc context [] instead.)")
+
+		} else if astNode.FunctionName == "$$" {
+			// $$ creates references in calc blocks,
+			// here it sets values to an address
+			// e.g. $$(0xA, 0xB) sets memory location 0xA to value 0xB
+
+			if len(astNode.Parameters) != 2 {
+				log.Fatalln("ERROR: A call to $$ must have two parameters (address, value). Source: " + astNode.Pos.String())
+			}
+
+			addrParam := astNode.Parameters[0]
+			valParam := astNode.Parameters[1]
+
+			addrAsmParam := runtimeValueToAsmParam(addrParam)
+			valAsmParam := runtimeValueToAsmParam(valParam)
+
+			if addrAsmParam.asmParamType == asmParamTypeCalc && valAsmParam.asmParamType == asmParamTypeCalc {
+				log.Fatalln("ERROR: Both parameters to $$ cannot be calc parameters")
+			}
+
+			newAsm = append(newAsm, &asmCmd{
+				ins:     "STOR",
+				comment: " call to $$",
+				params: []*asmParam{
+					valAsmParam,
+					addrAsmParam,
+				},
+			})
+
+			break
+
+		} else if astNode.FunctionName == "$" {
+			// $ dereferences, only valid in calc blocks
+			log.Fatalln("ERROR: Cannot use special function '$' in non-value context (e.g. calling $ as a void function standalone. Use calc context [] instead.)")
 		}
 
 		newAsm = append(newAsm, callFunc(astNode.FunctionName, astNode.Parameters, state)...)
