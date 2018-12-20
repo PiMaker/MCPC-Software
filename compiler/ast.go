@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"reflect"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -265,15 +266,32 @@ func (ast *AST) GenerateASM(bootloader, verbose, optimizeDisable bool) string {
 	// Print asm to string and check for warnings in compiled code
 	log.Println("Generating output ASM...")
 	outputAsm := ""
+
+	regexpLabelSetOrMetaCmd := regexp.MustCompile(`^(?:\..+\s+)?__.*$`)
+
 	prevIns := &asmCmd{
-		ins: "",
+		ins: "__INTENTIONALLY_INVALID",
 	}
-	for _, a := range asm {
+	for i, a := range asm {
 		outputAsm += a.asmString() + "\n"
 
 		// Check for no return
-		if a.ins == "FAULT" && a.params[0].value == FAULT_NO_RETURN && prevIns.ins != "RET" {
-			fmt.Printf("WARNING: Non-void function without trailing (default) return (%s @ %s)\n", strings.TrimRight(prevIns.asmString(), "\n"), prevIns.scope)
+		if a.ins == "FAULT" && a.params[0].value == FAULT_NO_RETURN {
+			lastActualCmd := prevIns
+			prevInsIndex := i - 1
+
+			for regexpLabelSetOrMetaCmd.MatchString(lastActualCmd.ins) {
+				prevInsIndex--
+				if i < 0 {
+					log.Fatalln("ERROR: No valid output asm before FAULT_NO_RETURN, this program would not be executable")
+				}
+
+				lastActualCmd = asm[prevInsIndex]
+			}
+
+			if lastActualCmd.ins != "RET" {
+				fmt.Printf("WARNING: Non-void function without trailing (default) return (%s @ %s)\n", strings.TrimRight(prevIns.asmString(), "\n"), prevIns.scope)
+			}
 		}
 
 		prevIns = a

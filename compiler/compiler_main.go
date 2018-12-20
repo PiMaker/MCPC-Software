@@ -17,7 +17,7 @@ import (
 	"github.com/alecthomas/participle/lexer"
 )
 
-const CompilerVersion = "0.2.1"
+const CompilerVersion = "0.3"
 
 const LexerRegex = `(?s)(\s+)|` +
 	`(?P<Int>(?:(?:0(x|X))[0-9a-fA-F]+|\d+))|` +
@@ -81,6 +81,8 @@ func GenerateAST(inputFile string) *AST {
 		participle.UseLookahead(5))
 	fileContentsRaw, err := ioutil.ReadFile(inputFile)
 
+	//
+
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
@@ -102,6 +104,11 @@ func GenerateAST(inputFile string) *AST {
 	// Handle 'character' type as numbers directly
 	fileContents = handleCharacters(fileContents)
 
+	// Automatically enclose possible calc expressions in square brackets
+	fileContents = autoCalcBracket(fileContents)
+
+	fmt.Println(fileContents)
+
 	err = parser.ParseString(fileContents, ast)
 
 	if err != nil {
@@ -115,6 +122,36 @@ func GenerateAST(inputFile string) *AST {
 	ast.CommentHeaders = astCommentHeader
 
 	return ast
+}
+
+func autoCalcBracket(input string) string {
+	regex := `(?s)return\s+([^;]*?);|(?:\+\=|\-\=|\*\=|\/\=|\%\=|\=)\s*([^;]+);|if\s+([^{]*){|while\s+([^{]*){|global.*?;`
+	replacer := regexp.MustCompile(regex)
+	return replacer.ReplaceAllStringFunc(input, func(s string) string {
+		if strings.IndexRune(s, '"') == -1 && strings.Index(s, "global") != 0 {
+			s = strings.Replace(s, "[", "", -1)
+			s = strings.Replace(s, "]", "", -1)
+			groupText, i := firstNonEmpty(replacer.FindStringSubmatch(s)[1:])
+			if i == -1 {
+				return s
+			}
+			// 2*(i+1) because weird golang regexp group index handling idk look at the docs kthxbye
+			groupIndex := replacer.FindStringSubmatchIndex(s)[2*(i+1)]
+			return s[:groupIndex] + " [ " + groupText + " ] " + s[groupIndex+len(groupText):]
+		}
+
+		return s
+	})
+}
+
+func firstNonEmpty(arr []string) (string, int) {
+	for i, s := range arr {
+		if len(s) > 0 {
+			return s, i
+		}
+	}
+
+	return "", -1
 }
 
 func stripComments(input string) string {
