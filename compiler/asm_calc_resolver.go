@@ -289,12 +289,12 @@ func symbolToALUFuncName(oper string) string {
 }
 
 func setRegToLiteralFromString(calc, reg string) []*asmCmd {
-	var calcValue int64
+	var calcValue uint64
 	if strings.Index(calc, "0x") == 0 || strings.Index(calc, "0X") == 0 {
 		// Error ignored, format is validated at this point
-		calcValue, _ = strconv.ParseInt(calc[2:], 16, 16)
+		calcValue, _ = strconv.ParseUint(calc[2:], 16, 16)
 	} else {
-		calcValue, _ = strconv.ParseInt(calc, 10, 16)
+		calcValue, _ = strconv.ParseUint(calc, 10, 16)
 	}
 
 	return []*asmCmd{
@@ -302,7 +302,7 @@ func setRegToLiteralFromString(calc, reg string) []*asmCmd {
 			ins: "SETREG",
 			params: []*asmParam{
 				rawAsmParam(reg),
-				rawAsmParam("0x" + strconv.FormatInt(calcValue, 16)),
+				rawAsmParam("0x" + strconv.FormatUint(calcValue, 16)),
 			},
 			comment: " CALC: literal " + calc,
 		},
