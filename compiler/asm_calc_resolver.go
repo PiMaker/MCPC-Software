@@ -18,7 +18,7 @@ import (
 // Careful here, we want to match base 10, 16, but not variables
 // (e.g. 0xfAb = match, 0xno_u = no match, technically a variable [though it has a leading 0?])
 const CalcTypeRegexLiteral = `^((0(x|X))[0-9a-fA-F]+|\d+)$`
-const CalcTypeRegexMath = `^(?:\=\=|\!\=|\<\=|\>\=|\<\<|\>\>|\+|\-|\<|\>|\*|\/|\%|\(|\)|\s|,|\~|\||\&|\$|\^|[a-zA-Z0-9_])*$`
+const CalcTypeRegexMath = `^(?:\=\=|\!\=|\<\=|\>\=|\<\<|\>\>|\+|\-|\<|\>|\*|\/|\%|\(|\)|\s|,|\~|\||\&|\^|[a-zA-Z0-9_$])*$`
 const CalcTypeRegexAsm = `^asm\s*\{.*?\}$`
 
 var calcTypeRegexLiteralRegexp = regexp.MustCompile(CalcTypeRegexLiteral)
@@ -295,6 +295,42 @@ func setRegToLiteralFromString(calc, reg string) []*asmCmd {
 		calcValue, _ = strconv.ParseUint(calc[2:], 16, 16)
 	} else {
 		calcValue, _ = strconv.ParseUint(calc, 10, 16)
+	}
+
+	// Shortcuts for 1, 0, -1 registers
+	if calcValue == 1 {
+		return []*asmCmd{
+			&asmCmd{
+				ins: "MOV",
+				params: []*asmParam{
+					rawAsmParam("1"),
+					rawAsmParam(reg),
+				},
+				comment: " CALC: literal " + calc + " (from const reg)",
+			},
+		}
+	} else if calcValue == 0xFFFF {
+		return []*asmCmd{
+			&asmCmd{
+				ins: "MOV",
+				params: []*asmParam{
+					rawAsmParam("-1"),
+					rawAsmParam(reg),
+				},
+				comment: " CALC: literal " + calc + " (from const reg)",
+			},
+		}
+	} else if calcValue == 0 {
+		return []*asmCmd{
+			&asmCmd{
+				ins: "MOV",
+				params: []*asmParam{
+					rawAsmParam("0"),
+					rawAsmParam(reg),
+				},
+				comment: " CALC: literal " + calc + " (from const reg)",
+			},
+		}
 	}
 
 	return []*asmCmd{

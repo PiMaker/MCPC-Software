@@ -146,26 +146,29 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 					state.scopeRegisterDirty[varReg] = false
 					state.scopeRegisterAssignment[varName] = cmd.scopeAnnotationRegister
 				} else {
-					// Commence swapping
+					// Commence swapping (xor'd because it's cool)
 					output = append(output, []*asmCmd{
 						&asmCmd{
-							ins: "MOV",
+							ins: "XOR",
 							params: []*asmParam{
 								rawAsmParam(toReg(cmd.scopeAnnotationRegister)),
-								rawAsmParam("G"),
+								rawAsmParam(toReg(cmd.scopeAnnotationRegister)),
+								rawAsmParam(toReg(varReg)),
 							},
 						},
 						&asmCmd{
-							ins: "MOV",
+							ins: "XOR",
 							params: []*asmParam{
+								rawAsmParam(toReg(varReg)),
 								rawAsmParam(toReg(varReg)),
 								rawAsmParam(toReg(cmd.scopeAnnotationRegister)),
 							},
 						},
 						&asmCmd{
-							ins: "MOV",
+							ins: "XOR",
 							params: []*asmParam{
-								rawAsmParam("G"),
+								rawAsmParam(toReg(cmd.scopeAnnotationRegister)),
+								rawAsmParam(toReg(cmd.scopeAnnotationRegister)),
 								rawAsmParam(toReg(varReg)),
 							},
 						},
@@ -272,7 +275,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 				&asmCmd{
 					ins: "SETREG",
 					params: []*asmParam{
-						rawAsmParam("G"),
+						rawAsmParam("F"),
 						rawAsmParam(fmt.Sprintf("0x%x", getAsmVar(p.value, cmd.scope, state).orderNumber)),
 					},
 					scope: cmd.scope,
@@ -282,7 +285,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 					params: []*asmParam{
 						rawAsmParam("H"),
 						rawAsmParam("F"), // Output
-						rawAsmParam("G"),
+						rawAsmParam("F"),
 					},
 					scope: cmd.scope,
 				}}...)

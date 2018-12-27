@@ -105,9 +105,10 @@ func GenerateAST(inputFile string) *AST {
 	fileContents = handleCharacters(fileContents)
 
 	// Automatically enclose possible calc expressions in square brackets
+	// "Bracketless M"
 	fileContents = autoCalcBracket(fileContents)
 
-	fmt.Println(fileContents)
+	//fmt.Println(fileContents)
 
 	err = parser.ParseString(fileContents, ast)
 
@@ -124,11 +125,15 @@ func GenerateAST(inputFile string) *AST {
 	return ast
 }
 
+// This is actually a big clusterfuck, but it *seems* to be working well enough for now
+// TODO: Yeet this function into oblivion
 func autoCalcBracket(input string) string {
-	regex := `(?s)return\s+([^;]*?);|(?:\+\=|\-\=|\*\=|\/\=|\%\=|\=)\s*([^;]+);|if\s+([^{]*){|while\s+([^{]*){|global.*?;`
+	// Note: Function call parameters are converted to a single big calc, including the comma between multiple parameters (if there are any)
+	regex := `(?s)return\s+([^;]*?);|(?:\+\=|\-\=|\*\=|\/\=|\%\=|\=)\s*([^;]+);|if\s+([^{]*){|while\s+([^{]*){|(?:[a-zA-Z_$][a-zA-Z0-9_$]*)\s*\((.*?)\)\s*;|func\s+(?:var|void)\s+(?:[a-zA-Z_$][a-zA-Z0-9_$]*)|global.*?;`
 	replacer := regexp.MustCompile(regex)
-	return replacer.ReplaceAllStringFunc(input, func(s string) string {
-		if strings.IndexRune(s, '"') == -1 && strings.Index(s, "global") != 0 {
+	regexReplaced := replacer.ReplaceAllStringFunc(input, func(s string) string {
+		// Ignore patterns starting with '"', "global" or "func" (this is our makeshift replacement for lookbehinds)
+		if strings.IndexRune(s, '"') == -1 && strings.Index(s, "global") != 0 && strings.Index(s, "func") != 0 && strings.Index(s, "_reg_assign") != 0 {
 			s = strings.Replace(s, "[", "", -1)
 			s = strings.Replace(s, "]", "", -1)
 			groupText, i := firstNonEmpty(replacer.FindStringSubmatch(s)[1:])
@@ -137,11 +142,23 @@ func autoCalcBracket(input string) string {
 			}
 			// 2*(i+1) because weird golang regexp group index handling idk look at the docs kthxbye
 			groupIndex := replacer.FindStringSubmatchIndex(s)[2*(i+1)]
-			return s[:groupIndex] + " [ " + groupText + " ] " + s[groupIndex+len(groupText):]
+			withBrackets := s[:groupIndex] + "[" + groupText + "]" + s[groupIndex+len(groupText):]
+
+			// Sorry to everyone who is reading this
+			// BTW 4 is actually 5, but we get the index from the slice [1:] so it's minus one
+			// Told you
+			if i == 4 {
+				withBrackets = strings.Replace(withBrackets, ",", "],[", -1)
+			}
+
+			return withBrackets
 		}
 
 		return s
 	})
+
+	// Fix standalone function calls
+	return regexReplaced
 }
 
 func firstNonEmpty(arr []string) (string, int) {
@@ -161,9 +178,9 @@ func stripComments(input string) string {
 	return replacer.ReplaceAllStringFunc(input, func(s string) string {
 		if strings.IndexRune(s, '"') == 0 || strings.IndexRune(s, '\'') == 0 {
 			return s
-		} else {
-			return " "
 		}
+
+		return " "
 	})
 }
 
@@ -173,9 +190,9 @@ func handleCharacters(input string) string {
 	return replacer.ReplaceAllStringFunc(input, func(s string) string {
 		if len(s) != 3 || strings.IndexRune(s, '"') == 0 {
 			return s
-		} else {
-			return strconv.Itoa(int(s[1]))
 		}
+
+		return strconv.Itoa(int(s[1]))
 	})
 }
 

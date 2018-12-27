@@ -100,16 +100,37 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 			addrAsmParam := runtimeValueToAsmParam(addrParam)
 			valAsmParam := runtimeValueToAsmParam(valParam)
 
-			if addrAsmParam.asmParamType == asmParamTypeCalc && valAsmParam.asmParamType == asmParamTypeCalc {
-				log.Fatalln("ERROR: Both parameters to $$ cannot be calc parameters")
-			}
+			newAsm = append(newAsm, &asmCmd{
+				ins:     "PUSH",
+				comment: " call to $$",
+				params: []*asmParam{
+					valAsmParam,
+				},
+			})
+
+			newAsm = append(newAsm, &asmCmd{
+				ins:     "MOV",
+				comment: " call to $$",
+				params: []*asmParam{
+					addrAsmParam,
+					rawAsmParam("F"),
+				},
+			})
+
+			newAsm = append(newAsm, &asmCmd{
+				ins:     "POP",
+				comment: " call to $$",
+				params: []*asmParam{
+					rawAsmParam("G"),
+				},
+			})
 
 			newAsm = append(newAsm, &asmCmd{
 				ins:     "STOR",
 				comment: " call to $$",
 				params: []*asmParam{
-					valAsmParam,
-					addrAsmParam,
+					rawAsmParam("G"),
+					rawAsmParam("F"),
 				},
 			})
 
@@ -117,7 +138,7 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 
 		} else if astNode.FunctionName == "$" {
 			// $ dereferences, only valid in calc blocks
-			log.Fatalln("ERROR: Cannot use special function '$' in non-value context (e.g. calling $ as a void function standalone. Use calc context [] instead.)")
+			log.Fatalln("ERROR: Cannot use special function '$' in non-value context (e.g. calling $ as a void function/standalone. Use calc context [] instead.)")
 		}
 
 		newAsm = append(newAsm, callFunc(astNode.FunctionName, astNode.Parameters, state)...)
