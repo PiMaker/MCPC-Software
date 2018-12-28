@@ -11,7 +11,7 @@ import (
 )
 
 const LicenseNotice string = `
-Copyright (C) 2018  Stefan Reiter (pimaker.at)
+Copyright (C) 2019  Stefan Reiter (pimaker.at)
 This program comes with ABSOLUTELY NO WARRANTY.
 This is free software, and you are welcome to redistribute it
 under certain conditions.
@@ -21,7 +21,7 @@ func main() {
 	inputFile, outputFile, bootloader, verbose, version, optimizeDisable := processArgs()
 
 	if version {
-		fmt.Println("M-Script compiler v" + compiler.CompilerVersion)
+		fmt.Println("M-Script Compiler - Version " + compiler.CompilerVersion)
 		fmt.Println(LicenseNotice)
 		return
 	}

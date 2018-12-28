@@ -144,7 +144,7 @@ func resolveCalcInternal(calc string, scope string, state *asmTransformState) []
 
 			case "OPER":
 				switch token.value {
-				case "+", "*", "-", "&", "|", "^", "==", "<", ">", "<=", ">=", "!=":
+				case "+", "*", "-", "&", "|", "^", "==", "<", ">", "<=", ">=", "!=", ">>", "<<":
 					// Pop twice then calculate then push again
 					output = append(output, &asmCmd{
 						ins: "POP",
@@ -282,6 +282,10 @@ func symbolToALUFuncName(oper string) string {
 		return "LTOE"
 	case ">=":
 		return "GTOE"
+	case "<<":
+		return "SHFL"
+	case ">>":
+		return "SHFR"
 	default:
 		log.Fatalln("ERROR: Unsupported operator in calc instruction: " + oper)
 		return ""
