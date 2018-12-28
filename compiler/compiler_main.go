@@ -81,8 +81,6 @@ func GenerateAST(inputFile string) *AST {
 		participle.UseLookahead(5))
 	fileContentsRaw, err := ioutil.ReadFile(inputFile)
 
-	//
-
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
@@ -185,11 +183,19 @@ func stripComments(input string) string {
 }
 
 func handleCharacters(input string) string {
-	regex := `\'.\'|\".*?\"`
+	regex := `\'\\?.\'|\".*?\"`
 	replacer := regexp.MustCompile(regex)
 	return replacer.ReplaceAllStringFunc(input, func(s string) string {
-		if len(s) != 3 || strings.IndexRune(s, '"') == 0 {
+		if (len(s) != 3 && len(s) != 4) || strings.IndexRune(s, '"') == 0 {
 			return s
+		}
+
+		if len(s) == 4 {
+			unquoted, err := strconv.Unquote(s)
+			if err != nil {
+				log.Fatalln("ERROR: Unknown escape sequence in char: " + err.Error())
+			}
+			return strconv.Itoa(int(unquoted[0]))
 		}
 
 		return strconv.Itoa(int(s[1]))
