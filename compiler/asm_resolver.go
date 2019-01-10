@@ -115,6 +115,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 		}
 
 		// Always assume dirty since probably used in ASM command
+		wasDirty := state.scopeRegisterDirty[cmd.scopeAnnotationRegister]
 		state.scopeRegisterDirty[cmd.scopeAnnotationRegister] = true
 
 		// Check if variable already checked out
@@ -185,16 +186,19 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 
 		// If we're here, the variable is currently not checked out
 		conflictingName := getNameForRegister(cmd.scopeAnnotationRegister, state)
-		if conflictingName != nil && state.scopeRegisterDirty[cmd.scopeAnnotationRegister] {
-			// Target register not empty: Needs flushing, evict it first
-			output = append(output, varToHeap(getAsmVar(*conflictingName, cmd.scope, state), toReg(cmd.scopeAnnotationRegister), state, cmd.scope)...)
+		if conflictingName != nil {
+			if wasDirty {
+				// Target register not empty: Needs flushing, evict it first
+				output = append(output, varToHeap(getAsmVar(*conflictingName, cmd.scope, state), toReg(cmd.scopeAnnotationRegister), state, cmd.scope)...)
+			}
 
 			// Update state for consistency
 			delete(state.scopeRegisterAssignment, *conflictingName)
 		}
 
-		// Finally load variable into correct register
+		// Finally load variable into correct register and update state
 		output = append(output, varFromHeap(getAsmVar(cmd.scopeAnnotationName, cmd.scope, state), toReg(cmd.scopeAnnotationRegister), state, cmd.scope)...)
+		state.scopeRegisterAssignment[cmd.scopeAnnotationName] = cmd.scopeAnnotationRegister
 
 		return append([]*asmCmd{cmd}, output...)
 	}
