@@ -27,7 +27,7 @@ func main() {
 	}
 
 	if inputFile == "" || outputFile == "" {
-		log.Fatalln("Command line usage: mscr <input.mscr> <output.ma> [--bootloader] [--verbose]")
+		log.Fatalln("Command line usage: mscr <input.mscr> <output.ma> [--bootloader] [--verbose] [--optimizedisable] [--version] [--help]")
 	}
 
 	log.Println("Starting compilation of " + inputFile)
@@ -68,6 +68,8 @@ func processArgs() (inputFile, outputFile string, bootloader, verbose, version, 
 				version = true
 			} else if arg == "--optimizedisable" {
 				optimizeDisable = true
+			} else if arg == "--help" {
+				// ignored
 			} else {
 				log.Println("WARN: Ignoring unknown command line flag: " + os.Args[i])
 			}
