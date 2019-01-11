@@ -13,7 +13,7 @@ func varToHeap(v *asmVar, register string, state *asmTransformState, cmdScope st
 				ins: "SETREG",
 				params: []*asmParam{
 					rawAsmParam("G"),
-					rawAsmParam(fmt.Sprintf("0x%x", v.orderNumber)), // orderNumber of global is memory address directly
+					rawAsmParam(fmt.Sprintf("0x%x", v.orderNumber)), // orderNumber of global is memory address directly (also true for views)
 				},
 				scope: cmdScope,
 			},

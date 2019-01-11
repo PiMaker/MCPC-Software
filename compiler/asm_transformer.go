@@ -171,6 +171,10 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 		state.maxDataAddr += len(newData)
 		state.binData = append(state.binData, newData...)
 
+	case *View:
+		// Basically just an alias
+		state.globalMemoryMap["global_"+astNode.Name] = astNode.Address
+
 	case *Variable:
 		addVariable(astNode.Name, state)
 		if astNode.Value != nil {

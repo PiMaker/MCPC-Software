@@ -38,5 +38,5 @@ __ASSUMESCOPE: assumes variable cmd.scopeAnnotationName is in cmd.scopeAnnotatio
 __FLUSHSCOPE: saves all variables and globals checked out as dirty back to memory
 __FLUSHGLOBALS: saves all globals checked out as dirty back to memory
 __FORCESCOPE: forces variable cmd.scopeAnnotationName to be checked out into cmd.scopeAnnotationRegister, eviciting or overwriting whatever was checked out there previously
-__SET_DIRECT: marks cmd.scopeAnnotationName as directly assigned variable, thus forcing it to be writtin to memory after every write access
+__SET_DIRECT: marks cmd.scopeAnnotationName as directly assigned variable, thus forcing it to be written to memory after every write access
 __EVICT: forcibly evicts cmd.scopeAnnotationRegister (but leaves non-dirty checkout marker)

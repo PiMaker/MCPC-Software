@@ -15,6 +15,7 @@ type TopExpression struct {
 
 	Function *Function `@@`
 	Global   *Global   `| @@ ";"`
+	View     *View     `| @@ ";"`
 }
 
 type Expression struct {
@@ -109,6 +110,13 @@ type Global struct {
 
 	Name  string `"global" @Ident`
 	Value *Value `["=" @@]`
+}
+
+type View struct {
+	Pos lexer.Position
+
+	Name    string `"view" @Ident`
+	Address int    `"@"@Int`
 }
 
 type Value struct {
