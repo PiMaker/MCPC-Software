@@ -17,7 +17,7 @@ import (
 	"github.com/alecthomas/participle/lexer"
 )
 
-const CompilerVersion = "0.5.0"
+const CompilerVersion = "0.5.1"
 
 const LexerRegex = `(?s)(\s+)|` +
 	`(?P<Int>(?:(?:0(x|X))[0-9a-fA-F]+|\d+))|` +
@@ -146,7 +146,27 @@ func autoCalcBracket(input string) string {
 			// BTW 4 is actually 5, but we get the index from the slice [1:] so it's minus one
 			// Told you
 			if i == 4 {
-				withBrackets = strings.Replace(withBrackets, ",", "],[", -1)
+				//withBrackets = strings.Replace(withBrackets, ",", "],[", -1)
+
+				// Big chungus loop below replaces string replace up top to handle expressions like:
+				// funca(param1_func(param1, param2), param2)
+				// correctly as
+				// funca([param1_func(param1, param2)],[param2])
+				bracketDepth := 0
+				for i := 0; i < len(withBrackets); i++ {
+					if withBrackets[i] == '(' {
+						bracketDepth++
+					}
+
+					if withBrackets[i] == ')' {
+						bracketDepth--
+					}
+
+					if withBrackets[i] == ',' && bracketDepth < 2 {
+						withBrackets = withBrackets[:i] + "],[" + withBrackets[i+1:]
+						i += 2
+					}
+				}
 			}
 
 			return withBrackets
