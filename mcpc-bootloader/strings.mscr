@@ -25,6 +25,25 @@ func var strlenh(hptr) {
 }
 
 /*
+    Translate ASCII letters (0x61-0x7a) to uppercase (and additionally numbers if requested).
+    Returns char unmodified if no conversion could be found.
+*/
+global str_uppercaseLookup = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+global str_uppercaseNumberLookup = ")!@#$%^&*(";
+
+func var str_toUppercase(char, convertNumbers) {
+    if (convertNumbers & char >= 0x30 & char <= 0x39) {
+        return $(str_uppercaseNumberLookup + char - 0x30);
+    }
+
+    if (char >= 0x61 & char <= 0x7a) {
+        return $(str_uppercaseLookup + char - 0x61);
+    }
+
+    return char;
+}
+
+/*
     strcmp returns true if the two strings being compared are equal.
     Note: If one string is shorter than the other, comparison will only be done to the length of the shorter string.
     => Thus, "hello world" would equal "hello"!
@@ -49,8 +68,8 @@ func var strcmp(ptr1, ptr2) {
 
 func var strcmph(hptr1, ptr2) {
     var i = 0;
-    var p1val = $_(hptr1+i);
-    var p2val = $(ptr2+i);
+    var p1val = $_(hptr1);
+    var p2val = $(ptr2);
 
     while (p1val != 0 & p2val != 0) {
         if (p1val != p2val) {
@@ -67,8 +86,8 @@ func var strcmph(hptr1, ptr2) {
 
 func var strcmphh(hptr1, hptr2) {
     var i = 0;
-    var p1val = $_(hptr1+i);
-    var p2val = $_(hptr2+i);
+    var p1val = $_(hptr1);
+    var p2val = $_(hptr2);
 
     while (p1val != 0 & p2val != 0) {
         if (p1val != p2val) {
@@ -81,6 +100,110 @@ func var strcmphh(hptr1, hptr2) {
     }
 
     return true;
+}
+
+/*
+    strtovar tries to convert the given string to a numeric value (think "int.Parse").
+    It tries to parse up to 4 characters or until it reaches a nil value.
+    On error, it returns -1. An empty string returns 0.
+*/
+
+func var strtovar(ptr) {
+    var retval = 0;
+    var i = 0;
+
+    var val = $(ptr);
+
+    while (val != 0 & i < 4) {
+        retval = retval << 4;
+
+        var cmpval = str_toUppercase(val, false);
+
+        if (cmpval == 'A') {
+            retval = retval | 0xA;
+        } else {
+            if (cmpval == 'B') {
+                retval = retval | 0xB;
+            } else {
+                if (cmpval == 'C') {
+                    retval = retval | 0xC;
+                } else {
+                    if (cmpval == 'D') {
+                        retval = retval | 0xD;
+                    } else {
+                        if (cmpval == 'E') {
+                            retval = retval | 0xE;
+                        } else {
+                            if (cmpval == 'F') {
+                                retval = retval | 0xF;
+                            } else {
+                                cmpval = cmpval - '0';
+                                if (cmpval < 10) {
+                                    retval = retval | cmpval;
+                                } else {
+                                    return -1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        i += 1;
+        val = $(ptr);
+    }
+
+    return retval;
+}
+
+func var strtovarh(hptr) {
+    var retval = 0;
+    var i = 0;
+
+    var val = $_(hptr);
+
+    while (val != 0 & i < 4) {
+        retval = retval << 4;
+
+        var cmpval = str_toUppercase(val, false);
+
+        if (cmpval == 'A') {
+            retval = retval | 0xA;
+        } else {
+            if (cmpval == 'B') {
+                retval = retval | 0xB;
+            } else {
+                if (cmpval == 'C') {
+                    retval = retval | 0xC;
+                } else {
+                    if (cmpval == 'D') {
+                        retval = retval | 0xD;
+                    } else {
+                        if (cmpval == 'E') {
+                            retval = retval | 0xE;
+                        } else {
+                            if (cmpval == 'F') {
+                                retval = retval | 0xF;
+                            } else {
+                                cmpval = cmpval - '0';
+                                if (cmpval < 10) {
+                                    retval = retval | cmpval;
+                                } else {
+                                    return -1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        i += 1;
+        val = $_(hptr+i);
+    }
+
+    return retval;
 }
 
 #endif

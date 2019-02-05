@@ -13,9 +13,12 @@
 global shell_cmd_echo = "echo";
 global shell_cmd_halt = "halt";
 global shell_cmd_ip = "ip";
+global shell_cmd_help = "help";
+global shell_cmd_memr = "memr";
 
 global shell_text_error = "Error, check syntax.";
 global shell_text_unknown = "Error, unknown command.";
+global shell_text_help = "Available commands: help, halt, echo, ip, memr";
 
 global shell_text_halt = "Halting.";
 
@@ -34,13 +37,43 @@ func void shell_run(hptr_input) {
         exec = true;
     }
 
-    if (inputLength >= 4 & strcmph(hptr_input, shell_cmd_halt)) {
+    if (~exec & inputLength >= 4 & strcmph(hptr_input, shell_cmd_halt)) {
         // halt: HALT the machine immediately
         vga_printString(shell_text_halt);
         _asm { HALT }
     }
 
-    if (inputLength >= 2 & strcmph(hptr_input, shell_cmd_ip)) {
+    if (~exec & inputLength >= 4 & strcmph(hptr_input, shell_cmd_help)) {
+        vga_printString(shell_text_help);
+        exec = true;
+    }
+
+    if (~exec & inputLength >= 4 & strcmph(hptr_input, shell_cmd_memr)) {
+        if (inputLength < 6 | inputLength > 9) {
+            vga_printString(shell_text_error);
+        } else {
+            var addr = strtovarh(hptr_input + 5);
+            vga_printChar('[');
+            vga_printHex(addr);
+            vga_printChar(']');
+            vga_printChar('=');
+            vga_printHex($(addr));
+        }
+
+        exec = true;
+    }
+
+    if (~exec & inputLength >= 2 & strcmph(hptr_input, shell_cmd_ip)) {
+        if (inputLength < 4) {
+            vga_printString(shell_text_error);
+        } else {
+            ip_run(hptr_input + 3);
+        }
+
+        exec = true;
+    }
+
+    if (~exec & inputLength >= 2 & strcmph(hptr_input, shell_cmd_ip)) {
         // echo: Print whatever is passed as parameters
         if (inputLength < 4) {
             vga_printString(shell_text_error);

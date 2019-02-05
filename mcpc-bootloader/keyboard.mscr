@@ -6,6 +6,7 @@
 #define LIB_KB
 
 #include "base.mscr"
+#include "strings.mscr"
 
 /*
     Keypress IRQ handling (FIFO reading)
@@ -74,7 +75,7 @@ func var kb_keycodeToASCII(key, shiftKeyPressed) {
         var retval = $(kb_keycodeLookup + (key - 22)); // My logic tells me this should be 21, but it only works with 22 *shrug*
         if (retval != '?') { // '?' means not found in lookup table
             if (shiftKeyPressed) {
-                return kb_toUppercase(retval, true);
+                return str_toUppercase(retval, true);
             } else {
                 return retval;
             }
@@ -164,25 +165,6 @@ func var kb_keycodeToASCII(key, shiftKeyPressed) {
 
     // Default is '?' character for unknown keys
     return '?';
-}
-
-/*
-    Translate ASCII letters (0x61-0x7a) to uppercase (and additionally numbers if requested).
-    Returns char unmodified if no conversion could be found.
-*/
-global kb_uppercaseLookup = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-global kb_uppercaseNumberLookup = ")!@#$%^&*(";
-
-func var kb_toUppercase(char, convertNumbers) {
-    if (convertNumbers & char >= 0x30 & char <= 0x39) {
-        return $(kb_uppercaseNumberLookup + char - 0x30);
-    }
-
-    if (char >= 0x61 & char <= 0x7a) {
-        return $(kb_uppercaseLookup + char - 0x61);
-    }
-
-    return char;
 }
 
 #endif
