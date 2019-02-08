@@ -46,10 +46,36 @@ func var malloc(size) {
 }
 
 func var memalloc_get_free_block(size) {
+    // TODO: Implement
+
     return 0;
 }
 
+func var realloc(hptr, newSize) {
+    var header = hptr - MEMALLOC_HEADER_LENGTH;
+    var curSize = $_(header+MEMALLOC_HEADER_OFFSET_SIZE);
+    if (curSize <= newSize) {
+        return hptr;
+    }
+
+    var newHptr = malloc(newSize);
+    memcopy(hptr, newHptr, curSize);
+    free(hptr);
+    return newHptr;
+}
+
 func void free(hptr) {
+    var header = hptr - MEMALLOC_HEADER_LENGTH;
+    $$_(header+MEMALLOC_HEADER_OFFSET_USED, false);
+
+    // TODO: Cleanup empty block trailer
+}
+
+func void memcopy(hptr_src, hptr_dst, length) {
+    while (length > 0) {
+        $$_(hptr_dst+length, $_(hptr_src+length));
+        length -= 1;
+    }
 }
 
 func void $$_(hptr, val) {

@@ -8,12 +8,19 @@
 #include "base.mscr"
 #include "vga.mscr"
 #include "memalloc.mscr"
+#include "expr.mscr"
 
-global ip_pre = "mLISP: ";
+global ip_pre = "mLISP: 0x";
 
 func void ip_run(hptr_input) {
-    vga_printString(ip_pre);
-    vga_printStringh(hptr_input);
+    var expr = expr_parseString(hptr_input);
+
+    if (expr != 0) {
+        var result = expr_eval(expr);
+        vga_printString(ip_pre);
+        vga_printHex(result);
+        vga_printChar('\n');
+    }
 }
 
 #endif

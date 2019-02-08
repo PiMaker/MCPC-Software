@@ -1,0 +1,74 @@
+/*
+    Provides a simple lisp-style language interpreter. (mLISP)
+*/
+
+#ifndef LIB_EXPR
+#define LIB_EXPR
+
+#include "base.mscr"
+#include "memalloc.mscr"
+#include "vga.mscr"
+
+/*
+    S-Expression data structure
+    ---------------------------
+
+    Base: hptr
+        0 -> type
+        1 -> value (val) or name (hptr)
+        2 -> 0 or parameter count
+            3..n -> hptr to other expressions
+
+*/
+
+#define EXPR_TYPE(x) $_(x)
+#define EXPR_VALUE(x) $_(x+1)
+#define EXPR_HPTR_NAME(X) $_(x+1)
+#define EXPR_PARAM_COUNT(x) $_(x+2)
+#define EXPR_PARAM_AT(x, n) $_(x+n+3)
+
+#define EXPR_STATE_START 0
+#define EXPR_STATE_ENTERED_EXPR 1
+#define EXPR_STATE_GOT_NAME 2
+#define EXPR_STATE_GOT_PARAM 3
+
+global expr_parse_error = "ERR | Unexpected char: ";
+
+func var expr_parseString(hptr_string) {
+    var stri = hptr_string;
+    var char = $_(stri);
+
+    var state = EXPR_STATE_START;
+    var hptr_topExpr = malloc(3);
+
+    while (char != 0) {
+
+        if (state == EXPR_STATE_START) {
+            if (char == '(') {
+                state = EXPR_STATE_ENTERED_EXPR;
+            } else {
+                if (char != ' ') {
+                    return expr_err(char);
+                }
+            }
+        }
+
+        stri += 1;
+        char = $_(stri);
+    }
+
+    return hptr_topExpr;
+}
+
+func var expr_err(char) {
+    vga_printString(expr_parse_error);
+    vga_printChar(char);
+    vga_printChar('\n');
+    return 0;
+}
+
+func var expr_eval(hptr_expr) {
+    return 1234;
+}
+
+#endif
