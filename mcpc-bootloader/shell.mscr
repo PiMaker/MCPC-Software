@@ -14,11 +14,12 @@ global shell_cmd_echo = "echo";
 global shell_cmd_halt = "halt";
 global shell_cmd_ip = "ip";
 global shell_cmd_help = "help";
+global shell_cmd_cls = "cls";
 global shell_cmd_memr = "memr";
 
 global shell_text_error = "Error, check syntax.";
 global shell_text_unknown = "Error, unknown command.";
-global shell_text_help = "Available commands: help, halt, echo, ip, memr";
+global shell_text_help = "Available commands: help, halt, echo, ip, memr, cls";
 
 global shell_text_halt = "Halting.";
 
@@ -70,6 +71,12 @@ func void shell_run(hptr_input) {
             ip_run(hptr_input + 3);
         }
 
+        exec = true;
+    }
+
+    if (~exec & inputLength >= 3 & strcmph(hptr_input, shell_cmd_cls)) {
+        vga_clearScreen();
+        vga_setCursorPos(0, 0);
         exec = true;
     }
 

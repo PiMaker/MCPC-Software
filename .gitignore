@@ -1,5 +1,10 @@
 .vscode
 
+# Ignore bootloader binaries
+mcpc-bootloader/bootloader_tmp.ma
+mcpc-bootloader/bootloader_tmp.mb
+mcpc-bootloader/bootloader.mif
+
 # Binaries for programs and plugins
 *.exe
 *.exe~
