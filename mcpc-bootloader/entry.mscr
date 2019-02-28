@@ -51,12 +51,15 @@ func var main(argc, argp) {
 
             if (key != 0) {
                 if (key == 0x5A) { // Enter
+                    vga_printChar(' ');
+                    vga_offsetLineCursor(-1);
                     vga_printChar('\n');
                     read_en = false;
                 } else {
                     if (key == 0x66) { // Backspace
                         if (currentInputOffset > 0) {
-                            vga_offsetLineCursor(-1);
+                            vga_printChar(' ');
+                            vga_offsetLineCursor(-2);
                             vga_printChar(' ');
                             vga_offsetLineCursor(-1);
                             currentInputOffset -= 1;
@@ -71,6 +74,9 @@ func var main(argc, argp) {
                     }
                 }
             }
+
+            vga_printChar('_');
+            vga_offsetLineCursor(-1);
         }
 
         // Pass off input to interpreter
