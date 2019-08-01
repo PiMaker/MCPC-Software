@@ -68,11 +68,11 @@ func var kb_getKeyPressed(outptr_shiftKeyPressed) {
     Keycode translation
 */
 #define KB_KEYCODE_LOOKUP_MAX 77
-global kb_keycodeLookup = "1q??zsaw2??cxde43?? vftr5??nbhgy6???mju78???kio09????l?p";
+global kb_keycodeLookup = "q1???zsaw2??cxde43?? vftr5??nbhgy6???mju78???kio09????l?p";
 
 func var kb_keycodeToASCII(key, shiftKeyPressed) {
     if (key >= 21 & key <= KB_KEYCODE_LOOKUP_MAX) {
-        var retval = $(kb_keycodeLookup + (key - 22)); // My logic tells me this should be 21, but it only works with 22 *shrug*
+        var retval = $(kb_keycodeLookup + (key - 21));
         if (retval != '?') { // '?' means not found in lookup table
             if (shiftKeyPressed) {
                 return str_toUppercase(retval, true);
