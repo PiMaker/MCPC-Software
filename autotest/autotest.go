@@ -101,7 +101,7 @@ func RunAutotests(dir string, libraries []string, optimizeDisable bool) {
 
 			} else {
 				output = fmt.Sprintf("%s%s (Unknown file extension)", output, f.Name())
-				stateOut = aurora.Gray("SKIP").String()
+				stateOut = aurora.White("SKIP").String()
 				printTestResult(stateOut, output)
 			}
 		}
@@ -109,7 +109,7 @@ func RunAutotests(dir string, libraries []string, optimizeDisable bool) {
 
 	log.Println()
 	log.Println(aurora.Cyan(aurora.Bold("Autotest Summary:")))
-	log.Println(aurora.Gray(fmt.Sprintf("Tests total:  %d", counter+1)))
+	log.Println(aurora.White(fmt.Sprintf("Tests total:  %d", counter+1)))
 	log.Println(aurora.Green(fmt.Sprintf("Tests passed: %d", (counter+1)-failedTotal)))
 	log.Println(aurora.Red(fmt.Sprintf("Tests failed: %d", failedTotal)))
 	log.Printf("Performance trace: %s\n", aurora.Bold(strconv.Itoa(perfTrace)))
@@ -174,7 +174,7 @@ func performAutotest(file string, counter int, libraries []string) (state, resul
 	validHeader, register, expected := extractAutotestHeader(string(fileContents))
 
 	if !validHeader {
-		state = aurora.Gray("SK_H").String()
+		state = aurora.White("SK_H").String()
 		result = "Invalid autotest header"
 		return
 	}
