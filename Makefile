@@ -1,18 +1,29 @@
-.PHONY: default install vm
-default: mcpc-bootloader/bootloader.mif | install
+.PHONY: default install vm go-restore clean
+default: build/bootloader.mif
 
-vm: mcpc-bootloader/bootloader_tmp.mb | install
-	mcpc vm mcpc-bootloader/bootloader_tmp.mb
+vm: build/bootloader_tmp.mb
+	mcpc vm build/bootloader_tmp.mb
 
-install:
+install: go-restore
 	go install mcpc.go
 
-mcpc-bootloader/bootloader.mif: mcpc-bootloader/bootloader_tmp.mb
-	srec_cat mcpc-bootloader/bootloader_tmp.mb -binary -o mcpc-bootloader/bootloader.mif -mif 16
+go-restore:
+	go get -v
 
-mcpc-bootloader/bootloader_tmp.mb: mcpc-bootloader/*.mscr
-	cd mcpc-bootloader; mcpc mscr ./entry.mscr ./bootloader_tmp.ma --bootloader
-	sed -i '$$d' mcpc-bootloader/bootloader_tmp.ma # Remove last line
-	cat mcpc-bootloader/asm.ma >> mcpc-bootloader/bootloader_tmp.ma # Append hand-crafted ASM
-	mcpc assemble --library assembler-libs/base.mlib --library assembler-libs/sram.mlib --library assembler-libs/sram_paged.mlib mcpc-bootloader/bootloader_tmp.ma mcpc-bootloader/bootloader_tmp.mb
-	rm mcpc-bootloader/bootloader_tmp.ma 
+clean:
+	rm -rf build
+
+test:
+	mcpc autotest tests --library assembler-libs/base.mlib --library assembler-libs/sram.mlib --library assembler-libs/sram_paged.mlib
+
+build/bootloader.mif: build/bootloader_tmp.mb
+	# Create mif file for Verilog
+	srec_cat build/bootloader_tmp.mb -binary -o build/bootloader.mif -mif 16
+
+build/bootloader_tmp.mb: mcpc-bootloader/*.mscr install
+	mkdir -p build
+	cd mcpc-bootloader; mcpc mscr ./entry.mscr ../build/bootloader_tmp.ma --bootloader
+	sed -i '$$d' build/bootloader_tmp.ma # Remove last line
+	cat mcpc-bootloader/asm.ma >> build/bootloader_tmp.ma # Append hand-crafted ASM
+	mcpc assemble --debug-symbols --library assembler-libs/base.mlib --library assembler-libs/sram.mlib --library assembler-libs/sram_paged.mlib build/bootloader_tmp.ma build/bootloader_tmp.mb
+
