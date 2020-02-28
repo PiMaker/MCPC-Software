@@ -22,6 +22,7 @@ const LexerRegex = `(?s)(\s+)|` +
 	`(?P<String>"(?:[^"\\]|\\.)*")|` +
 	`(?P<Eval>\[.*?\])|` +
 	`(?P<ASM>_asm\s*\{.*?\})|` +
+	`(?P<IdentWithDot>(?:[a-zA-Z0-9_$]+\.)+[a-zA-Z0-9_$]+)|` +
 	`(?P<Ident>[a-zA-Z_$][a-zA-Z0-9_$]*)|` +
 	`(?P<AssignmentOperator>\+\=|\-\=|\*\=|\/\=|\%\=|\=)|` +
 	`(?P<Operator>\=\=|\!\=|\<\=|\>\=|\<\<|\>\>|\+|\-|\<|\>|\*|\/|\%)|` +
@@ -120,7 +121,7 @@ func GenerateAST(inputFile string) *AST {
 // TODO: Yeet this function into oblivion
 func autoCalcBracket(input string) string {
 	// Note: Function call parameters are converted to a single big calc, including the comma between multiple parameters (if there are any)
-	regex := `(?s)return\s+([^;]*?);|(?:\+\=|\-\=|\*\=|\/\=|\%\=|\=)\s*([^;]+);|if\s+([^{]*){|while\s+([^{]*){|(?:[a-zA-Z_$][a-zA-Z0-9_$]*)\s*\((.*?)\)\s*;|func\s+(?:var|void)\s+(?:[a-zA-Z_$][a-zA-Z0-9_$]*)|global.*?;`
+	regex := `(?s)return\s+([^;]*?);|(?:\+\=|\-\=|\*\=|\/\=|\%\=|\=)\s*([^;]+);|if\s+([^{]*){|while\s+([^{]*){|(?:[a-zA-Z_$][a-zA-Z0-9_$]*)\s*\((.*?)\)\s*;|func\s+(?:[a-zA-Z_$][a-zA-Z0-9_$]*)\s+(?:[a-zA-Z_$][a-zA-Z0-9_$]*)|global.*?;`
 	replacer := regexp.MustCompile(regex)
 	regexReplaced := replacer.ReplaceAllStringFunc(input, func(s string) string {
 		// Ignore patterns starting with '"', "global" or "func" (this is our makeshift replacement for lookbehinds)

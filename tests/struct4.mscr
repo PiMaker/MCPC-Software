@@ -1,0 +1,23 @@
+;autotest reg=0 val=0xE;
+
+// alias of word in this case
+struct data {
+    word member;
+}
+
+struct container {
+    word x;
+    data y;
+}
+
+func word main(word argc, word argp) {
+    container c;
+    c.x = 14;
+    modify(c.x);
+    modify(c.y);
+    return c.x;
+}
+
+func void modify(data x) {
+    x.member = 20;
+}

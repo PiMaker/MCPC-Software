@@ -14,6 +14,7 @@ type TopExpression struct {
 	Pos lexer.Position
 
 	Function *Function `@@`
+	Struct   *Struct   `| @@`
 	Global   *Global   `| @@ ";"`
 	View     *View     `| @@ ";"`
 }
@@ -26,31 +27,52 @@ type Expression struct {
 	Variable     *Variable     `| @@`
 	Return       *RuntimeValue `| "return" @@) ";")`
 
-	WhileLoop   *WhileLoop   `| @@`
-	ForLoop     *ForLoop     `| @@`
+	WhileLoop *WhileLoop `| @@`
+	//	ForLoop     *ForLoop     `| @@`
 	IfCondition *Conditional `| @@`
 	Asm         *string      `| @ASM`
+}
+
+type Struct struct {
+	Pos lexer.Position
+
+	Name    string          `"struct" @Ident`
+	Members []*StructMember `"{" { @@ } "}"`
+}
+
+type StructMember struct {
+	Pos lexer.Position
+
+	Type string `@Ident`
+	Name string `@Ident ";"`
 }
 
 type Function struct {
 	Pos lexer.Position
 
-	Inline     bool          `"func" [@"inline"]`
-	Type       string        `@("var"|"void")`
-	Name       string        `@Ident`
-	Parameters []string      `"(" { @Ident [","] } ")"`
-	Body       []*Expression `"{" { @@ } "}"`
+	Inline     bool                 `"func" [@"inline"]`
+	Type       string               `@Ident`
+	Name       string               `@Ident`
+	Parameters []*FunctionParameter `"(" { @@ [","] } ")"`
+	Body       []*Expression        `"{" { @@ } "}"`
 }
 
-type ForLoop struct {
+type FunctionParameter struct {
 	Pos lexer.Position
 
-	IsVar        bool          `"for" @"var"`
-	IteratorName string        `@Ident`
-	From         int           `"from" @Int`
-	To           int           `"to" @Int`
-	Body         []*Expression `"{" { @@ } "}"`
+	Type string `@Ident`
+	Name string `@Ident`
 }
+
+// type ForLoop struct {
+// 	Pos lexer.Position
+
+// 	IsVar        bool          `"for" @"var"`
+// 	IteratorName string        `@Ident`
+// 	From         int           `"from" @Int`
+// 	To           int           `"to" @Int`
+// 	Body         []*Expression `"{" { @@ } "}"`
+// }
 
 type WhileLoop struct {
 	Pos lexer.Position
@@ -70,14 +92,15 @@ type Conditional struct {
 type Variable struct {
 	Pos lexer.Position
 
-	Name  string        `"var" @Ident`
+	Type  string        `@Ident`
+	Name  string        `@Ident`
 	Value *RuntimeValue `["=" @@]`
 }
 
 type Assignment struct {
 	Pos lexer.Position
 
-	Name     string        `@Ident`
+	Name     string        `@(IdentWithDot|Ident)`
 	Operator string        `@AssignmentOperator`
 	Value    *RuntimeValue `@@`
 }
@@ -102,13 +125,14 @@ type RuntimeValue struct {
 	FunctionCall *RVFunctionCall `  @@`
 	Eval         *string         `| @Eval`
 	Number       *int            `| @Int`
-	Ident        *string         `| @Ident`
+	Variable     *string         `| @(IdentWithDot|Ident)`
 }
 
 type Global struct {
 	Pos lexer.Position
 
-	Name  string `"global" @Ident`
+	Type  string `"global" @Ident`
+	Name  string `@Ident`
 	Value *Value `["=" @@]`
 }
 

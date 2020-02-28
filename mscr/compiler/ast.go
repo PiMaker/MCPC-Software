@@ -72,8 +72,17 @@ func (ast *AST) GenerateASM(bootloader, verbose, optimizeDisable bool) string {
 
 	// Redefinition detection tables
 	var globalTable []*Global
-	var functionTableVar []string
-	var functionTableVoid []string
+	var functionTable []asmFunc
+
+	// Add default types
+	typeMap := map[string]*asmType{
+		"word": &asmType{
+			name:    "word",
+			size:    1,
+			builtin: true,
+			members: make([]asmTypeMember, 0),
+		},
+	}
 
 	// Fill tables
 	walkInterface(ast, func(val reflect.Value, name string, depth int) {
@@ -90,43 +99,111 @@ func (ast *AST) GenerateASM(bootloader, verbose, optimizeDisable bool) string {
 		case *Global:
 			for _, g := range globalTable {
 				if g.Name == node.Name {
-					panic(fmt.Sprintf("ERROR: Redefinition of global '%s' at %s\n", node.Name, node.Pos.String()))
+					panic(fmt.Sprintf("ERROR: Redefinition of global '%s' at %s", node.Name, node.Pos.String()))
 				}
 			}
 			globalTable = append(globalTable, node)
 
 		case *Function:
 			functionLabel := getFuncLabel(*node)
-			for _, f := range append(functionTableVoid, functionTableVar...) {
-				if f == functionLabel {
-					panic(fmt.Sprintf("ERROR: Redefinition of function '%s' at %s\n", node.Name, node.Pos.String()))
+			for _, f := range functionTable {
+				if f.name == functionLabel {
+					panic(fmt.Sprintf("ERROR: Redefinition of function '%s' at %s", node.Name, node.Pos.String()))
 				}
 			}
 
-			if node.Type == "var" {
-				functionTableVar = append(functionTableVar, functionLabel)
-			} else if node.Type == "void" {
-				functionTableVoid = append(functionTableVoid, functionLabel)
+			var returnType *asmType
+			if node.Type != "void" {
+				ret, ok := typeMap[node.Type]
+				if !ok {
+					panic(fmt.Sprintf("ERROR: Use of undefined type '%s' in function signature (return type of function '%s')", node.Type, node.Name))
+				}
+
+				if ret.size != 1 {
+					panic(fmt.Sprintf("ERROR: Return types with size != 1 are prohibited (type '%s' in function '%s')", node.Type, node.Name))
+				}
+
+				returnType = ret
 			}
+
+			f := asmFunc{
+				name:       node.Name,
+				label:      functionLabel,
+				params:     make([]asmTypeMember, 0),
+				returnType: returnType,
+			}
+
+			for _, p := range node.Parameters {
+				asmType, ok := typeMap[p.Type]
+				if !ok {
+					panic(fmt.Sprintf("ERROR: Use of undefined type '%s' in function parameter '%s' (function '%s')", p.Type, p.Name, node.Name))
+				}
+
+				if asmType.size != 1 {
+					panic(fmt.Sprintf("ERROR: Parameter types with size != 1 are prohibited (type '%s' in parameter '%s', function '%s')", p.Type, p.Name, node.Name))
+				}
+
+				f.params = append(f.params, asmTypeMember{
+					name:    p.Name,
+					asmType: asmType,
+				})
+			}
+
+			functionTable = append(functionTable, f)
+
+		// Struct definition
+		case *Struct:
+			for _, t := range typeMap {
+				if t.name == node.Name {
+					panic(fmt.Sprintf("ERROR: Redefinition of struct '%s' at %s", node.Name, node.Pos.String()))
+				}
+			}
+
+			newType := &asmType{
+				name:    node.Name,
+				size:    0,
+				builtin: false,
+				members: make([]asmTypeMember, 0),
+			}
+
+			if node.Members != nil {
+				for _, member := range node.Members {
+					memberType, ok := typeMap[member.Type]
+					if !ok {
+						panic(fmt.Sprintf("ERROR: Use of undefined type '%s' for struct member %s.%s", member.Type, node.Name, member.Name))
+					}
+					newType.members = append(newType.members, asmTypeMember{
+						name:    member.Name,
+						asmType: memberType,
+					})
+					newType.size += memberType.size
+				}
+			}
+
+			typeMap[node.Name] = newType
 		}
 
 	}, nil, 0)
 
 	// Check for entry point existance
 	containsMain := false
-	for _, f := range functionTableVar {
-		if f == "mscr_function_main_params_2" {
+	for _, f := range functionTable {
+		if f.label == "mscr_function_main_params_2" {
+			if f.params[0].asmType.name != "word" || f.params[1].asmType.name != "word" || f.returnType == nil || f.returnType.name != "word" {
+				panic("ERROR: Function main must have type signature 'func word main (word argc, word argp)'")
+			}
+
 			containsMain = true
 			break
 		}
 	}
 	if !containsMain {
-		panic("ERROR: Entry point not found. Please declare a function 'func var main (argc, argp)'")
+		panic("ERROR: Entry point not found. Please declare a function 'func word main (word argc, word argp)'")
 	}
 
 	transformState := &asmTransformState{
-		functionTableVar:  functionTableVar,
-		functionTableVoid: functionTableVoid,
+		functionTable: functionTable,
+		typeMap:       typeMap,
 
 		currentFunction: "",
 

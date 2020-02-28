@@ -1,11 +1,11 @@
 ;autotest reg=0 val=34;
 
-func var main(argc, argp)
+func word main(word argc, word argp)
 {
     return fib(8);
 }
 
-func var fib(n)
+func word fib(word n)
 {
     if n == 0 { return 0; }
     if n == 1 { return 1; }
@@ -13,7 +13,7 @@ func var fib(n)
     return fibRec(1, 0, n);
 }
 
-func var fibRec(a, b, counter)
+func word fibRec(word a, word b, word counter)
 {
     if counter == 0
     {

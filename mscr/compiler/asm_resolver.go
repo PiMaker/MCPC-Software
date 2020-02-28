@@ -30,9 +30,9 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 	}
 
 	if cmd.ins == "__SET_DIRECT" {
-		asmVar := getAsmVar(cmd.scopeAnnotationName, cmd.scope, state)
+		asmVar, _ := getAsmVar(cmd.scopeAnnotationName, cmd.scope, state)
 		if asmVar.isGlobal {
-			// Variables are implicitly directly-assigned, no further action needed
+			// Globals are implicitly directly-assigned, no further action needed
 			return append([]*asmCmd{cmd}, output...)
 		}
 
@@ -64,11 +64,13 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 				for varName, varReg := range state.scopeRegisterAssignment {
 					if i == varReg {
 						// Match for dirty var and corresponding register, save to heap
-						toAppend := varToHeap(getAsmVar(varName, cmd.scope, state), toReg(i), state, cmd.scope)
+						asmVar, offset := getAsmVar(varName, cmd.scope, state)
+						toAppend := varToHeap(asmVar, offset, toReg(i), state, cmd.scope)
 						for _, a := range toAppend {
 							a.comment = fmt.Sprintf(" __FLUSHSCOPE (flushing: %s)", varName)
 						}
 						output = append(output, toAppend...)
+						break
 					}
 				}
 			}
@@ -84,9 +86,9 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 				for varName, varReg := range state.scopeRegisterAssignment {
 					if i == varReg {
 						// Match for dirty var and corresponding register, save to heap
-						asmVar := getAsmVar(varName, cmd.scope, state)
+						asmVar, offset := getAsmVar(varName, cmd.scope, state)
 						if asmVar.isGlobal {
-							output = append(output, varToHeap(asmVar, toReg(i), state, cmd.scope)...)
+							output = append(output, varToHeap(asmVar, offset, toReg(i), state, cmd.scope)...)
 						}
 					}
 				}
@@ -103,6 +105,12 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 		for _, v := range state.variableMap[cmd.scope] {
 			if v.name == cmd.scopeAnnotationName {
 				found = true
+
+				if !typeIsWord(v.asmType, cmd.scopeAnnotationName, cmd.scope) {
+					panic(fmt.Sprintf("ERROR: Tried to force variable '%s' with size %d > 1 into register '%s/%d'. (Note: _reg_assign(register, variable) only works with words or aliases thereof)\n",
+						cmd.scopeAnnotationName, v.asmType.size, toReg(cmd.scopeAnnotationRegister), cmd.scopeAnnotationRegister))
+				}
+
 				break
 			}
 		}
@@ -185,7 +193,8 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 		if conflictingName != nil {
 			if wasDirty {
 				// Target register not empty: Needs flushing, evict it first
-				output = append(output, varToHeap(getAsmVar(*conflictingName, cmd.scope, state), toReg(cmd.scopeAnnotationRegister), state, cmd.scope)...)
+				asmVar, offset := getAsmVar(*conflictingName, cmd.scope, state)
+				output = append(output, varToHeap(asmVar, offset, toReg(cmd.scopeAnnotationRegister), state, cmd.scope)...)
 			}
 
 			// Update state for consistency
@@ -193,7 +202,8 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 		}
 
 		// Finally load variable into correct register and update state
-		output = append(output, varFromHeap(getAsmVar(cmd.scopeAnnotationName, cmd.scope, state), toReg(cmd.scopeAnnotationRegister), state, cmd.scope)...)
+		asmVar, offset := getAsmVar(cmd.scopeAnnotationName, cmd.scope, state)
+		output = append(output, varFromHeap(asmVar, offset, toReg(cmd.scopeAnnotationRegister), state, cmd.scope)...)
 		state.scopeRegisterAssignment[cmd.scopeAnnotationName] = cmd.scopeAnnotationRegister
 
 		return append([]*asmCmd{cmd}, output...)
@@ -240,14 +250,20 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 	for paramNum, p := range cmd.params {
 		switch p.asmParamType {
 		case asmParamTypeScopeVarCount:
+			// Calculate VarHeap size for scope p.value
+			size := 0
+			for _, v := range state.variableMap[p.value] {
+				size += v.asmType.size
+			}
+
 			if cmd.ins == "SETREG" && paramNum == 1 && cmd.params[0].asmParamType == asmParamTypeRaw {
 				// Special case for which we do not need any calcs
 				p.asmParamType = asmParamTypeRaw
-				p.value = fmt.Sprintf("0x%x", len(state.variableMap[p.value]))
+				p.value = fmt.Sprintf("0x%x", size)
 			} else {
 				// General case, let recursive resolving take care of it
 				p.asmParamType = asmParamTypeCalc
-				p.value = fmt.Sprintf("[%d]", len(state.variableMap[p.value]))
+				p.value = fmt.Sprintf("[%d]", size)
 			}
 
 		case asmParamTypeStringRead:
@@ -270,13 +286,15 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 
 		case asmParamTypeVarAddr:
 			// Alright, this is the tricky part
-			// Recall that a "var" address is calculated from the varheap pointer minus it's order number
+			// Recall that a "var" address is calculated from the varheap pointer minus its order number, plus its offset
+			// We can pre-calculate the offset part however, by subtracting it from the order number, thus effectively "adding" it to the output F
+			asmVar, offset := getAsmVar(p.value, cmd.scope, state)
 			output = append(output, []*asmCmd{
 				&asmCmd{
 					ins: "SETREG",
 					params: []*asmParam{
 						rawAsmParam("F"),
-						rawAsmParam(fmt.Sprintf("0x%x", getAsmVar(p.value, cmd.scope, state).orderNumber)),
+						rawAsmParam(fmt.Sprintf("0x%x", asmVar.orderNumber-offset)),
 					},
 					scope: cmd.scope,
 				},
@@ -296,18 +314,25 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 		// Variable/Global access (aka. the big stuff)
 		case asmParamTypeVarRead, asmParamTypeVarWrite, asmParamTypeGlobalRead, asmParamTypeGlobalWrite:
 
-			asmVar := getAsmVar(p.value, cmd.scope, state)
+			// varAccessor might contain access chains like "struct_name.member1.member2", while asmVar.name would only contain "struct_name" in this case
+			// But since we need to make sure that different members get checked out into seperate registers, use the entire chain as our map index
+			varAccessor := p.value
+			asmVar, offset := getAsmVar(varAccessor, cmd.scope, state)
+
+			if !typeIsWord(asmVar.asmType, varAccessor, cmd.scope) {
+				panic(fmt.Sprintf("ERROR: Only words or aliases thereof can be checked out. Trying to do math with structs? Use pointers/memcopy implementations for working with size > 1 types (scope: %s, variable: %s)", cmd.scope, p.value))
+			}
 
 			// Check if variable already checked out into register
 
-			directlyAssigned, ok := state.scopeVariableDirectMarks[asmVar.name]
+			directlyAssigned, ok := state.scopeVariableDirectMarks[varAccessor]
 			if p.asmParamType == asmParamTypeGlobalWrite || p.asmParamType == asmParamTypeGlobalRead || (ok && directlyAssigned) {
 				// If directly assigned, do not search for checked out var in registers, since it won't be up-to-date anyway
 				cmd.comment += " (reg_alloc: skipping scope search, directly-assigned)"
 			} else {
 				found := false
 				for varName, varReg := range state.scopeRegisterAssignment {
-					if varName == asmVar.name {
+					if varName == varAccessor {
 						// Found
 						p.value = toReg(varReg)
 
@@ -331,6 +356,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 
 			// Assign register to variable
 			// TODO (maybe): Analyze which register has been checked out the longest ago and use that? Better heuristic in general?
+			// TODO: fix struct members all being assigned same register (probably, in theory anyway)
 			reg := asmVar.orderNumber % AssigneableRegisters
 
 			// First, check if we have a random free register available
@@ -378,12 +404,12 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 			}
 
 			// Update state (right now, since next step calls evictRegister in some circumstances)
-			state.scopeRegisterAssignment[asmVar.name] = reg
+			state.scopeRegisterAssignment[varAccessor] = reg
 
 			// Set dirty on write
 			if p.asmParamType == asmParamTypeVarWrite || p.asmParamType == asmParamTypeGlobalWrite {
 				// Skip this and instead insert a write-back directly after if we are dealing with a directly-assigned variable or global
-				directlyAssigned, ok := state.scopeVariableDirectMarks[asmVar.name]
+				directlyAssigned, ok := state.scopeVariableDirectMarks[varAccessor]
 				if p.asmParamType == asmParamTypeGlobalWrite || (ok && directlyAssigned) {
 					state.scopeRegisterDirty[reg] = false
 					postCmdAsm = append(evictRegister(reg, cmd.scope, state), postCmdAsm...)
@@ -401,7 +427,7 @@ func (cmd *asmCmd) resolve(initAsm []*asmCmd, state *asmTransformState) []*asmCm
 
 			// Load value (only on read, on write it will be overwritten anyway)
 			if p.asmParamType == asmParamTypeVarRead || p.asmParamType == asmParamTypeGlobalRead {
-				output = append(output, varFromHeap(asmVar, toReg(reg), state, cmd.scope)...)
+				output = append(output, varFromHeap(asmVar, offset, toReg(reg), state, cmd.scope)...)
 			}
 
 			// Set paramType to raw last to avoid errors above

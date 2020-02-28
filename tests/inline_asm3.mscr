@@ -1,8 +1,8 @@
 ;autotest reg=0 val=5;
 
-func var main(argc, argp) {
-    var x;
-    var y;
+func word main(word argc, word argp) {
+    word x;
+    word y;
 
     _reg_assign(0, x);
     _asm {

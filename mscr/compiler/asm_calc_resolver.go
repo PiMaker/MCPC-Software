@@ -18,7 +18,7 @@ import (
 // Careful here, we want to match base 10, 16, but not variables
 // (e.g. 0xfAb = match, 0xno_u = no match, technically a variable [though it has a leading 0?])
 const CalcTypeRegexLiteral = `^((0(x|X))[0-9a-fA-F]+|\d+)$`
-const CalcTypeRegexMath = `^(?:\=\=|\!\=|\<\=|\>\=|\<\<|\>\>|\+|\-|\<|\>|\*|\/|\%|\(|\)|\s|,|\~|\||\&|\^|[a-zA-Z0-9_$])*$`
+const CalcTypeRegexMath = `^(?:\=\=|\!\=|\<\=|\>\=|\<\<|\>\>|\+|\-|\<|\>|\*|\/|\%|\(|\)|\s|,|\~|\||\&|\^|[a-zA-Z0-9_$\.])*$`
 const CalcTypeRegexAsm = `^asm\s*\{.*?\}$`
 
 var calcTypeRegexLiteralRegexp = regexp.MustCompile(CalcTypeRegexLiteral)
@@ -253,7 +253,6 @@ func resolveCalcInternal(calc string, scope string, state *asmTransformState) []
 	}
 
 	panic("ERROR: Unsupported calc string: " + calc)
-	return nil
 }
 
 func symbolToALUFuncName(oper string) string {
@@ -288,7 +287,6 @@ func symbolToALUFuncName(oper string) string {
 		return "SHFR"
 	default:
 		panic("ERROR: Unsupported operator in calc instruction: " + oper)
-		return ""
 	}
 }
 
@@ -447,24 +445,21 @@ func callCalcFunc(funcName string, paramCount int, state *asmTransformState, las
 
 		fLabel := getFuncLabelSpecific(funcName, paramCount)
 		function := ""
-		for _, varFunc := range state.functionTableVar {
-			if varFunc == fLabel {
-				function = varFunc
+		for _, f := range state.functionTable {
+			if f.label == fLabel {
+				function = f.label
+
+				if f.returnType == nil {
+					panic(fmt.Sprintf("ERROR: Tried calling a void function in a calc context: Function '%s' with %d parameters\n", funcName, paramCount))
+				}
+
 				break
 			}
 		}
 
 		if function == "" {
-			for _, voidFunc := range state.functionTableVoid {
-				if voidFunc == fLabel {
-					panic(fmt.Sprintf("ERROR: Tried calling a void function in a calc context: Function '%s' with %d parameters\n", funcName, paramCount))
-				}
-			}
-
-			if function == "" {
-				log.Printf("WARNING: Cannot find function to call (calc): Function '%s' with %d parameters (Assuming extern function)\n", funcName, paramCount)
-				function = fLabel
-			}
+			log.Printf("WARNING: Cannot find function to call (calc): Function '%s' with %d parameters (Assuming extern function)\n", funcName, paramCount)
+			function = fLabel
 		}
 
 		retval = append(retval, &asmCmd{

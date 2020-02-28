@@ -1,0 +1,11 @@
+;autotest reg=0 val=0xABCD;
+
+struct data {
+    word member;
+}
+
+func word main(word argc, word argp) {
+    data d;
+    d.member = 0xABCD;
+    return d.member;
+}

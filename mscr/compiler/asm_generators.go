@@ -6,8 +6,13 @@ import (
 	"strings"
 )
 
-func varToHeap(v *asmVar, register string, state *asmTransformState, cmdScope string) []*asmCmd {
+func varToHeap(v *asmVar, offset int, register string, state *asmTransformState, cmdScope string) []*asmCmd {
 	if v.isGlobal {
+		if offset != 0 {
+			// FIXME
+			panic("FIXME: Typed globals currently not supported")
+		}
+
 		return []*asmCmd{
 			&asmCmd{
 				ins: "SETREG",
@@ -33,7 +38,7 @@ func varToHeap(v *asmVar, register string, state *asmTransformState, cmdScope st
 			ins: "SETREG",
 			params: []*asmParam{
 				rawAsmParam("G"),
-				rawAsmParam(fmt.Sprintf("0x%x", v.orderNumber)),
+				rawAsmParam(fmt.Sprintf("0x%x", v.orderNumber-offset)),
 			},
 			scope: cmdScope,
 		},
@@ -58,7 +63,7 @@ func varToHeap(v *asmVar, register string, state *asmTransformState, cmdScope st
 
 	/*
 		; Non-global case:
-		SETREG G <orderNumber>
+		SETREG G <orderNumber-offset>
 		SUB H G G
 		STOR <register> G
 
@@ -68,8 +73,13 @@ func varToHeap(v *asmVar, register string, state *asmTransformState, cmdScope st
 	*/
 }
 
-func varFromHeap(v *asmVar, register string, state *asmTransformState, cmdScope string) []*asmCmd {
+func varFromHeap(v *asmVar, offset int, register string, state *asmTransformState, cmdScope string) []*asmCmd {
 	if v.isGlobal {
+		if offset != 0 {
+			// FIXME
+			panic("FIXME: Typed globals currently not supported")
+		}
+
 		// For (more-ish) doc on global handling see varToHeap above
 		return []*asmCmd{
 			&asmCmd{
@@ -96,7 +106,7 @@ func varFromHeap(v *asmVar, register string, state *asmTransformState, cmdScope 
 			ins: "SETREG",
 			params: []*asmParam{
 				rawAsmParam("G"),
-				rawAsmParam(fmt.Sprintf("0x%x", v.orderNumber)),
+				rawAsmParam(fmt.Sprintf("0x%x", v.orderNumber-offset)),
 			},
 			scope: cmdScope,
 		},
@@ -120,7 +130,7 @@ func varFromHeap(v *asmVar, register string, state *asmTransformState, cmdScope 
 	}
 
 	/*
-		SETREG G <orderNumber>
+		SETREG G <orderNumber-offset>
 		SUB H G G
 		LOAD <register> G
 	*/
@@ -156,6 +166,15 @@ func callFunc(funcName string, parameters []*RuntimeValue, state *asmTransformSt
 
 	// Push parameters to stack
 	for i := 0; i < len(parameters); i++ {
+		if parameters[i].Variable != nil {
+			asmVar, _ := getAsmVar(*parameters[i].Variable, state.currentFunction, state)
+			// FIXME: Add type checking, also for returned value
+			//if asmVar.asmType !=
+			if asmVar.asmType.size != 1 {
+				panic(fmt.Sprintf("ERROR: Only types with size 1 can be passed as parameter (tried passing type '%s' which has size %d as parameter %d to function '%s' in scope '%s')", asmVar.asmType.name, asmVar.asmType.size, i, funcName, state.currentFunction))
+			}
+		}
+
 		paramAsAsmCalc := runtimeValueToAsmParam(parameters[i])
 		retval = append(retval, &asmCmd{
 			ins: "PUSH",
@@ -175,27 +194,16 @@ func callFunc(funcName string, parameters []*RuntimeValue, state *asmTransformSt
 
 	fLabel := getFuncLabelSpecific(funcName, len(parameters))
 	function := ""
-	//isVar := false
-	for _, varFunc := range state.functionTableVar {
-		if varFunc == fLabel {
-			//isVar = true
-			function = varFunc
+	for _, f := range state.functionTable {
+		if f.label == fLabel {
+			function = f.label
 			break
 		}
 	}
 
 	if function == "" {
-		for _, voidFunc := range state.functionTableVoid {
-			if voidFunc == fLabel {
-				function = voidFunc
-				break
-			}
-		}
-
-		if function == "" {
-			log.Printf("WARNING: Cannot find function to call: Function '%s' with %d parameters (Assuming extern function)\n", funcName, len(parameters))
-			function = fLabel
-		}
+		log.Printf("WARNING: Cannot find function to call: Function '%s' with %d parameters (Assuming extern function)\n", funcName, len(parameters))
+		function = fLabel
 	}
 
 	retval = append(retval, &asmCmd{
@@ -297,9 +305,9 @@ func varFromStack(varName string, state *asmTransformState) []*asmCmd {
 func evictRegister(reg int, scope string, state *asmTransformState) []*asmCmd {
 	nameForReg := getNameForRegister(reg, state)
 	if nameForReg == nil {
-		panic("HELP")
 		panic("ERROR: Variable<>Register assignment failure; Internal error, scopeRegisterAssignment map inconsistent with register dirty state. (Tried to evict register with no variable assigned)")
 	}
 
-	return varToHeap(getAsmVar(*nameForReg, scope, state), toReg(reg), state, scope)
+	asmVar, offset := getAsmVar(*nameForReg, scope, state)
+	return varToHeap(asmVar, offset, toReg(reg), state, scope)
 }

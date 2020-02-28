@@ -1,9 +1,9 @@
 ;autotest reg=0 val=20;
 
-global y = 20;
+global word y = 20;
 
-func var main(argc, argp) {
-    var addr = $$(y);
-    var addr2 = $$(addr);
+func word main(word argc, word argp) {
+    word addr = $$(y);
+    word addr2 = $$(addr);
     return $($(addr2));
 }

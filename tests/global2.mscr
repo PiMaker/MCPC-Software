@@ -1,15 +1,15 @@
 ;autotest reg=0 val=42;
 
-global x = 1;
-global y;
+global word x = 1;
+global word y;
 
-func var main(argc, argp) {
+func word main(word argc, word argp) {
     y = 43;
     test(y);
     return y - x;
 }
 
-func void test(x) {
+func void test(word x) {
     // Note that x is local here!
     x = x + 2;
 }

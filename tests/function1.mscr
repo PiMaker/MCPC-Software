@@ -1,9 +1,9 @@
 ;autotest reg=0 val=42;
 
-global x = 7;
+global word x = 7;
 
-func var main(argc, argp) {
-    var y = 50;
+func word main(word argc, word argp) {
+    word y = 50;
 
     setGlobal();
 

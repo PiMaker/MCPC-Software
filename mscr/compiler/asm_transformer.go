@@ -40,8 +40,8 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 		// Read parameters from stack (in reverse order)
 		for i := len(astNode.Parameters) - 1; i >= 0; i-- {
 			// varFromStack scopes automatically (via asmParamTypeVarWrite)
-			newAsm = append(newAsm, varFromStack(astNode.Parameters[i], state)...)
-			addVariable(astNode.Parameters[i], state)
+			newAsm = append(newAsm, varFromStack(astNode.Parameters[i].Name, state)...)
+			addVariable(astNode.Parameters[i].Name, astNode.Parameters[i].Type, state)
 		}
 
 		// Push return address back
@@ -72,13 +72,13 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 				panic("ERROR: A call to _reg_assign must have a register number as its first parameter. Source: " + astNode.Pos.String())
 			}
 
-			if varParam.Ident == nil {
+			if varParam.Variable == nil {
 				panic("ERROR: A call to _reg_assign must have a variable as its second parameter. Source: " + astNode.Pos.String())
 			}
 
 			newAsm = append(newAsm, &asmCmd{
 				ins:                     "__FORCESCOPE",
-				scopeAnnotationName:     *varParam.Ident,
+				scopeAnnotationName:     *varParam.Variable,
 				scopeAnnotationRegister: *regParam.Number,
 				comment:                 " _reg_assign",
 			})
@@ -145,6 +145,11 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 
 	// Global variable
 	case *Global:
+		if astNode.Type != "word" {
+			// FIXME
+			panic("FIXME: Typed globals not supported yet!")
+		}
+
 		var newData []int16
 		if astNode.Value != nil && astNode.Value.Text != nil {
 			// String global
@@ -176,7 +181,7 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 		state.globalMemoryMap["global_"+astNode.Name] = astNode.Address
 
 	case *Variable:
-		addVariable(astNode.Name, state)
+		addVariable(astNode.Name, astNode.Type, state)
 		if astNode.Value != nil {
 			// (Take) Note: Variables without initial assignment are *not* assigned a value!
 			newAsm = append(newAsm, &asmCmd{
@@ -283,6 +288,8 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 			panic("ERROR: Cannot assign nothing as value")
 		}
 
+		// FIXME: Add type checking
+
 		if astNode.Operator == "=" {
 			newAsm = append(newAsm, &asmCmd{
 				ins: "MOV",
@@ -337,7 +344,7 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 			})
 		}
 
-	case *TopExpression, *RuntimeValue, *Value, *RVFunctionCall, lexer.Position:
+	case *TopExpression, *RuntimeValue, *Value, *RVFunctionCall, *FunctionParameter, *StructMember, *Struct, lexer.Position:
 		// Ignored instructions (don't generate asm)
 		// These are usually handled otherwise (e.g. as subexpressions of other instructions)
 		break
@@ -371,9 +378,9 @@ func asmForNodePost(nodeInterface interface{}, state *asmTransformState) []*asmC
 		// TODO: Append only when necessary (not already present from user code)
 		isVoid := false
 		fLabel := getFuncLabelSpecific(node.Name, len(node.Parameters))
-		for _, vf := range state.functionTableVoid {
-			if vf == fLabel {
-				isVoid = true
+		for _, vf := range state.functionTable {
+			if vf.label == fLabel {
+				isVoid = vf.returnType == nil
 				break
 			}
 		}

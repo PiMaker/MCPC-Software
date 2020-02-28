@@ -1,17 +1,17 @@
 ;autotest reg=0 val=6;
 
-global text = "Hello,\nworld!";
+global word text = "Hello,\nworld!";
 
-func var main(argc, argp) {
+func word main(word argc, word argp) {
     // Find index of newline
     return indexOf(text, 0xA);
 }
 
-func var indexOf(haystack, needle) {
-    var i = 0;
+func word indexOf(word haystack, word needle) {
+    word i = 0;
     while 1 {
-        var hsi = haystack + i;
-        var charAt = $(hsi);
+        word hsi = haystack + i;
+        word charAt = $(hsi);
         if charAt == needle | charAt == 0 {
             return i;
         }

@@ -1,8 +1,8 @@
 ;autotest reg=0 val=60;
 
-global test = 0x20;
+global word test = 0x20;
 
-func var main (argc, argp) {
-    var a = test - argc + 2 * (2 * 7);
+func word main(word argc, word argp) {
+    word a = test - argc + 2 * (2 * 7);
     return a;
 }

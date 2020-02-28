@@ -1,8 +1,8 @@
 ;autotest reg=0 val=10;
 
-func var main(argc, argp) {
-    var x = 0;
-    
+func word main(word argc, word argp) {
+    word x = 0;
+
     while x != 10 {
         x += 1;
     }

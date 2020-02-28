@@ -1,8 +1,8 @@
 ;autotest reg=0 val=0x20;
 
-func var main(argc, argp) {
-    var x = 10;
-    var addr = 0x552;
+func word main(word argc, word argp) {
+    word x = 10;
+    word addr = 0x552;
 
     _reg_assign(3, addr);
     _reg_assign(2, x);

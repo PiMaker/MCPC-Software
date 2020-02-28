@@ -1,17 +1,17 @@
 ;autotest reg=0 val=42;
 
-func var main(argc, argp) {
+func word main(word argc, word argp) {
     
-    var x = 0;
-    var y = 0;
-    var z = 0;
-    var aaa = 0;
+    word x = 0;
+    word y = 0;
+    word z = 0;
+    word aaa = 0;
 
     while x < 10 {
-        var a = 0;
-        var b = 0;
-        var c = 0;
-        var d = 0;
+        word a = 0;
+        word b = 0;
+        word c = 0;
+        word d = 0;
 
         d += 1;
         c += 2;

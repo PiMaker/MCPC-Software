@@ -1,9 +1,9 @@
 ;autotest reg=0 val=50;
 
-func var main(argc, argp) {
-    var x = 10;
-    var y = 20;
-    var z = x + y*2;
+func word main(word argc, word argp) {
+    word x = 10;
+    word y = 20;
+    word z = x + y*2;
     y = z;
     x = y;
     return x;

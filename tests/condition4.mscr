@@ -1,7 +1,7 @@
 ;autotest reg=0 val=0xFFBD;
 
-func var main(argc, argp) {
-    var x = 0x44;
+func word main(word argc, word argp) {
+    word x = 0x44;
     
     if x > 0x43 {
         x = x - 1;

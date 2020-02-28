@@ -1,5 +1,5 @@
 ;autotest reg=0 val=42;
 
-func var main(argc, argp) {
+func word main(word argc, word argp) {
     return 40 + 0x2;
 }

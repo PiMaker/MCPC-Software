@@ -1,11 +1,11 @@
 ;autotest reg=0 val=20;
 
-global x = 10;
+global word x = 10;
 
-func var main(argc, argp) {
+func word main(word argc, word argp) {
 
-    var addr = $$(x);
-    var val = 20;
+    word addr = $$(x);
+    word val = 20;
     _reg_assign(0, val);
     _reg_assign(1, addr);
     _asm {

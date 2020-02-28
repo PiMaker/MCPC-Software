@@ -1,0 +1,12 @@
+;autotest reg=0 val=0xABCD;
+
+// alias of word in this case
+struct data {
+    word member;
+}
+
+func word main(word argc, word argp) {
+    data d;
+    d = 0xABCD;
+    return d;
+}

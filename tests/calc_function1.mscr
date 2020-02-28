@@ -1,9 +1,9 @@
 ;autotest reg=0 val=42;
 
-func var main(argc, argp) {
+func word main(word argc, word argp) {
     return getValue();
 }
 
-func var getValue() {
+func word getValue() {
     return 42;
 }

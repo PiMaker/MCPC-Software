@@ -47,12 +47,12 @@ type asmTransformState struct {
 	currentFunction           string
 	currentScopeVariableCount int
 
-	functionTableVar  []string
-	functionTableVoid []string
+	functionTable []asmFunc
 
 	globalMemoryMap map[string]int
 	maxDataAddr     int
 
+	typeMap     map[string]*asmType
 	variableMap map[string][]asmVar
 	stringMap   map[string]int
 
@@ -71,4 +71,25 @@ type asmVar struct {
 	name        string
 	orderNumber int
 	isGlobal    bool
+	asmType     *asmType
+}
+
+type asmType struct {
+	name    string
+	size    int // in words
+	builtin bool
+
+	members []asmTypeMember
+}
+
+type asmTypeMember struct {
+	name    string
+	asmType *asmType
+}
+
+type asmFunc struct {
+	name       string
+	label      string
+	params     []asmTypeMember
+	returnType *asmType
 }

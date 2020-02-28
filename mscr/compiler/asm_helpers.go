@@ -31,11 +31,11 @@ func runtimeValueToAsmParam(val *RuntimeValue) *asmParam {
 		valueString += ")"
 	} else if val.Number != nil {
 		valueString = strconv.Itoa(*val.Number)
-	} else if val.Ident != nil {
+	} else if val.Variable != nil {
 		// Shortcut for variables
 		return &asmParam{
 			asmParamType: asmParamTypeVarRead,
-			value:        *val.Ident,
+			value:        *val.Variable,
 		}
 	}
 
@@ -46,13 +46,21 @@ func runtimeValueToAsmParam(val *RuntimeValue) *asmParam {
 	}
 }
 
-func addVariable(varName string, state *asmTransformState) {
+func addVariable(varName string, varType string, state *asmTransformState) {
 	scopeSlice, scopeExists := state.variableMap[state.currentFunction]
+
+	asmType, ok := state.typeMap[varType]
+	if !ok {
+		panic(fmt.Sprintf("ERROR: Invalid type '%s' given to variable '%s' (scope: %s)", varType, varName, state.currentFunction))
+	}
+
+	newVar := &asmVar{
+		name:        varName,
+		orderNumber: 0,
+		asmType:     asmType,
+	}
+
 	if scopeExists {
-		newVar := &asmVar{
-			name:        varName,
-			orderNumber: 0,
-		}
 
 		for _, v := range scopeSlice {
 			if v.name == varName {
@@ -60,7 +68,7 @@ func addVariable(varName string, state *asmTransformState) {
 			}
 
 			if v.orderNumber >= newVar.orderNumber {
-				newVar.orderNumber = v.orderNumber + 1
+				newVar.orderNumber = v.orderNumber + newVar.asmType.size
 			}
 		}
 
@@ -68,10 +76,7 @@ func addVariable(varName string, state *asmTransformState) {
 	} else {
 
 		state.variableMap[state.currentFunction] = []asmVar{
-			asmVar{
-				name:        varName,
-				orderNumber: 0,
-			},
+			*newVar,
 		}
 	}
 
@@ -127,16 +132,47 @@ func getNameForRegister(reg int, state *asmTransformState) *string {
 	return nil
 }
 
-func getAsmVar(name string, scope string, state *asmTransformState) *asmVar {
+// If 'chain' were "data.member1.member2" then 'baseType' should describe the type of "data",
+// e.g. the offset calculation starts at "member1" not "data"
+func getMemberInfo(chain string, baseType *asmType, scope string) (offset int, size int) {
+	split := strings.Split(chain, ".")
+
+	if len(split) <= 1 {
+		return 0, baseType.size
+	}
+
+	offset = 0
+	for _, member := range split[1:] {
+		for _, typeMember := range baseType.members {
+			if member == typeMember.name {
+				recOffset, recSize := getMemberInfo(strings.Join(split[1:], "."), typeMember.asmType, scope)
+				return offset + recOffset, recSize
+			} else {
+				offset += typeMember.asmType.size
+			}
+		}
+	}
+
+	panic(fmt.Sprintf("ERROR: Type '%s' does not contain a member called '%s' (scope: %s)", baseType.name, chain[1], scope))
+}
+
+func getAsmVar(name string, scope string, state *asmTransformState) (*asmVar, int) {
+	nameSplit := strings.Split(name, ".")
+
 	var avar *asmVar
 	for _, v := range state.variableMap[scope] {
-		if v.name == name {
+		if v.name == nameSplit[0] {
 			avar = &v
 			break
 		}
 	}
 
 	if avar == nil {
+		if len(nameSplit) > 1 {
+			// FIXME
+			panic("FIXME: Typed globals currently not supported")
+		}
+
 		// Search for global if locally scoped variabled couldn't be found
 		// This is safe, because it is guaranteed at this stage that no variable can be named the same as any given global
 		for gname, addr := range state.globalMemoryMap {
@@ -145,6 +181,7 @@ func getAsmVar(name string, scope string, state *asmTransformState) *asmVar {
 					name:        name,
 					orderNumber: addr,
 					isGlobal:    true,
+					asmType:     state.typeMap["word"],
 				}
 			}
 		}
@@ -152,9 +189,15 @@ func getAsmVar(name string, scope string, state *asmTransformState) *asmVar {
 		if avar == nil {
 			panic(fmt.Sprintf("ERROR: Invalid variable name in resolve: %s (scope: %s)\n", name, scope))
 		}
+
+		return avar, 0
+	} else if len(nameSplit) > 1 {
+		// struct member acces, calculate offset
+		offset, _ := getMemberInfo(name, avar.asmType, scope)
+		return avar, offset
 	}
 
-	return avar
+	return avar, 0
 }
 
 // Fixes globals and strings incorrectly being detected as variable identifiers
@@ -194,6 +237,13 @@ func (cmd *asmCmd) fixGlobalAndStringParamTypes(state *asmTransformState) {
 			}
 		}
 	}
+}
+
+func typeIsWord(asmType *asmType, accessor string, scope string) bool {
+	// As long as the size is 1 we can treat it as a word
+	// This allows aliasing the word type
+	_, size := getMemberInfo(accessor, asmType, scope)
+	return size == 1
 }
 
 // Generates valid MCPC assembly from an asmCmd

@@ -1,8 +1,8 @@
 ;autotest reg=0 val=20;
 
-func var main(argc, argp) {
-    var x = 10;
-    var x_ptr = $$(x);
+func word main(word argc, word argp) {
+    word x = 10;
+    word x_ptr = $$(x);
     if $(x_ptr) == x {
         x = 20;
     }
