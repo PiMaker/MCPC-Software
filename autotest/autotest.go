@@ -38,7 +38,7 @@ func RunAutotests(dir string, libraries []string, optimizeDisable bool) {
 			counter++
 
 			stateOut := aurora.Blue("UNKN").String()
-			output := fmt.Sprintf("Test %d: ", counter)
+			output := fmt.Sprintf("Test %d: ", counter+1)
 
 			if strings.HasSuffix(f.Name(), ".mscr") {
 				output = fmt.Sprintf("%s%s (MSCR", output, f.Name())
@@ -115,8 +115,14 @@ func RunAutotests(dir string, libraries []string, optimizeDisable bool) {
 	log.Printf("Performance trace: %s\n", aurora.Bold(strconv.Itoa(perfTrace)))
 
 	if failedTotal == 0 {
+		log.Println()
+		log.Println(aurora.BgGreen("All tests passed!"))
+
 		os.Exit(0)
 	} else {
+		log.Println()
+		log.Println(aurora.BgRed("Some tests failed."))
+
 		os.Exit(1)
 	}
 }
