@@ -10,6 +10,9 @@ install: go-restore
 go-restore:
 	go get -v
 
+go-update:
+	go get -v -u
+
 clean:
 	rm -rf build
 
