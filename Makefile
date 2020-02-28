@@ -13,7 +13,7 @@ go-restore:
 clean:
 	rm -rf build
 
-test:
+test: install
 	mcpc autotest tests --library assembler-libs/base.mlib --library assembler-libs/sram.mlib --library assembler-libs/sram_paged.mlib
 
 build/bootloader.mif: build/bootloader_tmp.mb

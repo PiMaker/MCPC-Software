@@ -26,7 +26,7 @@ func var malloc(size) {
 
     // No free block found, create new one
     var totalSize = (size + MEMALLOC_HEADER_LENGTH);
-    
+
     if (totalSize > memalloc_head) {
         // Out of (heap) memory, fault
         _asm {
