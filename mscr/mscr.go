@@ -1,14 +1,25 @@
 package mscr
 
 import (
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
+
+	"github.com/logrusorgru/aurora"
 
 	"github.com/PiMaker/MCPC-Software/mscr/compiler"
 )
 
 func CompileMSCR(inputFile, outputFile string, bootloader, verbose, optimizeDisable bool) {
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println(aurora.Red("Compilation failed!"))
+			errStr := fmt.Sprintf("%s", r)
+			log.Fatalln(errStr)
+		}
+	}()
 
 	if inputFile == "" || outputFile == "" {
 		panic("You need to specify an input and output file combination for MSCR.")

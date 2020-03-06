@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/logrusorgru/aurora"
+
 	gppbin "github.com/PiMaker/MCPC-Software/mscr/gppbin"
 
 	"github.com/alecthomas/participle"
@@ -101,6 +103,31 @@ func GenerateAST(inputFile string) *AST {
 	fileContents = autoCalcBracket(fileContents)
 
 	//fmt.Println(fileContents)
+
+	// Set up parsing error handler
+	defer func() {
+		if r := recover(); r != nil {
+			errStr := fmt.Sprintf("%s", r)
+
+			// Handle additional details, e.g. line where error occured
+			lineRe := `^(\d+)\:(\d+)\:\s*(.*)$`
+			lineRegex := regexp.MustCompile(lineRe)
+			lineMatch := lineRegex.FindStringSubmatch(errStr)
+			if lineMatch != nil && len(lineMatch) >= 4 {
+				log.Println(aurora.Red("Compilation failed!"))
+				fmt.Printf("\nERROR: %s\n(also check line for syntax errors!)\n", lineMatch[3])
+				lineNr, _ := strconv.Atoi(lineMatch[1])
+				rowNr, _ := strconv.Atoi(lineMatch[2])
+				line := strings.Split(fileContents, "\n")[lineNr-1]
+				rowStr := strings.Repeat(" ", rowNr-1) + "^"
+				fmt.Printf("\nLine %d, Row %d:\n\n%s\n%s\n", lineNr, rowNr, line, rowStr)
+			} else {
+				panic(r)
+			}
+
+			os.Exit(1)
+		}
+	}()
 
 	err = parser.ParseString(fileContents, ast)
 

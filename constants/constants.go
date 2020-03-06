@@ -8,4 +8,4 @@ under certain conditions.
 See https://github.com/PiMaker/MCPC-Software/blob/master/LICENSE for more.
 `
 
-const MCPCVersion string = "0.6"
+const MCPCVersion string = "0.6.1"

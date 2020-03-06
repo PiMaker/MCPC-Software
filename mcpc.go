@@ -3,10 +3,11 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/PiMaker/MCPC-Software/mscr"
 	"io/ioutil"
 	"log"
 	"os"
+
+	"github.com/PiMaker/MCPC-Software/mscr"
 
 	"github.com/docopt/docopt.go"
 
