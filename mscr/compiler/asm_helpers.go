@@ -3,7 +3,6 @@ package compiler
 import (
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/alecthomas/participle/lexer"
@@ -16,33 +15,34 @@ var regexpAsmExtractCmds = regexp.MustCompile(`\s*(\S+)\s*`)
 
 func runtimeValueToAsmParam(val *RuntimeValue) *asmParam {
 	// TODO: Maybe add more shortcut options?
-	valueString := ""
+	// FIXME: every runtime param is a calc anyway, this function should probably be a no-op in the future?
+	//valueString := ""
 
-	if val.Eval != nil {
-		valueString = *val.Eval
-	} else if val.FunctionCall != nil {
-		valueString = val.FunctionCall.FunctionName + "("
-		for i, parmesan := range val.FunctionCall.Parameters {
-			if i > 0 {
-				valueString += ","
-			}
-			valueString += runtimeValueToAsmParam(parmesan).value
-		}
-		valueString += ")"
-	} else if val.Number != nil {
-		valueString = strconv.Itoa(*val.Number)
-	} else if val.Variable != nil {
-		// Shortcut for variables
-		return &asmParam{
-			asmParamType: asmParamTypeVarRead,
-			value:        *val.Variable,
-		}
-	}
+	// if val.Eval != nil {
+	// 	valueString = *val.Eval
+	// } else if val.FunctionCall != nil {
+	// 	valueString = val.FunctionCall.FunctionName + "("
+	// 	for i, parmesan := range val.FunctionCall.Parameters {
+	// 		if i > 0 {
+	// 			valueString += ","
+	// 		}
+	// 		valueString += runtimeValueToAsmParam(parmesan).value
+	// 	}
+	// 	valueString += ")"
+	// } else if val.Number != nil {
+	// 	valueString = strconv.Itoa(*val.Number)
+	// } else if val.Variable != nil {
+	// 	// Shortcut for variables
+	// 	return &asmParam{
+	// 		asmParamType: asmParamTypeVarRead,
+	// 		value:        *val.Variable,
+	// 	}
+	// }
 
-	// For now, make everything a calc, because simplicity and fucking over my future self who'll have to implement calc parsing
 	return &asmParam{
 		asmParamType: asmParamTypeCalc,
-		value:        valueString,
+		subAST:       val,
+		//value:        valueString,
 	}
 }
 

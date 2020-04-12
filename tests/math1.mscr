@@ -2,6 +2,7 @@
 
 func word main(word argc, word argp) {
     word x = 43;
-    x = x - 1;
+    x = x - (1 + 2)*4 + 3;
+    //word y = x - (sin(4, x + 3) * (17+ 2)) / pow(x, x*(2+4));
     return x;
 }

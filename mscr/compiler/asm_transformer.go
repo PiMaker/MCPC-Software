@@ -65,23 +65,26 @@ func asmForNodePre(nodeInterface interface{}, state *asmTransformState) []*asmCm
 				panic("ERROR: A call to _reg_assign must have two parameters (register, variable). Source: " + astNode.Pos.String())
 			}
 
-			regParam := astNode.Parameters[0]
-			varParam := astNode.Parameters[1]
+			// FIXME
+			panic("FIXME: Implement _reg_assign")
 
-			if regParam.Number == nil {
-				panic("ERROR: A call to _reg_assign must have a register number as its first parameter. Source: " + astNode.Pos.String())
-			}
+			// regParam := astNode.Parameters[0]
+			// varParam := astNode.Parameters[1]
 
-			if varParam.Variable == nil {
-				panic("ERROR: A call to _reg_assign must have a variable as its second parameter. Source: " + astNode.Pos.String())
-			}
+			// if regParam.Number == nil {
+			// 	panic("ERROR: A call to _reg_assign must have a register number as its first parameter. Source: " + astNode.Pos.String())
+			// }
 
-			newAsm = append(newAsm, &asmCmd{
-				ins:                     "__FORCESCOPE",
-				scopeAnnotationName:     *varParam.Variable,
-				scopeAnnotationRegister: *regParam.Number,
-				comment:                 " _reg_assign",
-			})
+			// if varParam.Variable == nil {
+			// 	panic("ERROR: A call to _reg_assign must have a variable as its second parameter. Source: " + astNode.Pos.String())
+			// }
+
+			// newAsm = append(newAsm, &asmCmd{
+			// 	ins:                     "__FORCESCOPE",
+			// 	scopeAnnotationName:     *varParam.Variable,
+			// 	scopeAnnotationRegister: *regParam.Number,
+			// 	comment:                 " _reg_assign",
+			// })
 
 			break
 

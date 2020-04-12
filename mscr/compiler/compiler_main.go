@@ -100,7 +100,7 @@ func GenerateAST(inputFile string) *AST {
 
 	// Automatically enclose possible calc expressions in square brackets
 	// "Bracketless M"
-	fileContents = autoCalcBracket(fileContents)
+	//fileContents = autoCalcBracket(fileContents)
 
 	//fmt.Println(fileContents)
 

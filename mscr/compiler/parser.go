@@ -24,8 +24,8 @@ type Expression struct {
 
 	Assignment   *Assignment   `(( @@`
 	FunctionCall *FunctionCall `| @@`
-	Variable     *Variable     `| @@`
-	Return       *RuntimeValue `| "return" @@) ";")`
+	Return       *RuntimeValue `| "return" @@`
+	Variable     *Variable     `| @@) ";")`
 
 	WhileLoop *WhileLoop `| @@`
 	//	ForLoop     *ForLoop     `| @@`
@@ -112,22 +112,6 @@ type FunctionCall struct {
 	Parameters   []*RuntimeValue `"(" { @@ [","] } ")"`
 }
 
-type RVFunctionCall struct {
-	Pos lexer.Position
-
-	FunctionName string          `@Ident`
-	Parameters   []*RuntimeValue `"(" { @@ [","] } ")"`
-}
-
-type RuntimeValue struct {
-	Pos lexer.Position
-
-	FunctionCall *RVFunctionCall `  @@`
-	Eval         *string         `| @Eval`
-	Number       *int            `| @Int`
-	Variable     *string         `| @(IdentWithDot|Ident)`
-}
-
 type Global struct {
 	Pos lexer.Position
 
@@ -148,4 +132,43 @@ type Value struct {
 
 	Text   *string `  @String`
 	Number *int    `| @Int`
+}
+
+// RuntimeValue represents a programmatic value that will be resolved to a single results at runtime.
+// It's implemented as an expression parser for supported mathematical expressions and function calls.
+// A RuntimeValue can be seen as a "sub-AST" that encompasses all necessary information to be transformed into meta ASM.
+
+type RuntimeValue struct {
+	Pos lexer.Position
+
+	Left  RVValue  `@@`
+	Right *RVOpExp `[ @@ ]`
+
+	/*FunctionCall *RVFunctionCall `  @@`
+	Eval         *string         `| @Eval`
+	Number       *int            `| @Int`
+	Variable     *string         `| @(IdentWithDot|Ident)`*/
+}
+
+type RVFunctionCall struct {
+	Pos lexer.Position
+
+	FunctionName string          `@Ident`
+	Parameters   []*RuntimeValue `"(" { @@ [","] } ")"`
+}
+
+type RVValue struct {
+	Pos lexer.Position
+
+	Number        *int            `@Int`
+	Variable      *string         `| @(IdentWithDot|Ident)`
+	FunctionCall  *RVFunctionCall `| @@`
+	SubExpression *RuntimeValue   `| "(" @@ ")"`
+}
+
+type RVOpExp struct {
+	Pos lexer.Position
+
+	Operator *string       `@Operator`
+	Right    *RuntimeValue `@@`
 }

@@ -41,6 +41,9 @@ type asmParam struct {
 
 	// For resolving globals and strings
 	addrCache int
+
+	// For calc expressions
+	subAST *RuntimeValue
 }
 
 type asmTransformState struct {

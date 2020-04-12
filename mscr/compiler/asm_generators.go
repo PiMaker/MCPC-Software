@@ -166,14 +166,15 @@ func callFunc(funcName string, parameters []*RuntimeValue, state *asmTransformSt
 
 	// Push parameters to stack
 	for i := 0; i < len(parameters); i++ {
-		if parameters[i].Variable != nil {
+		// FIXME: Fix type checking
+		/*if parameters[i].Variable != nil {
 			asmVar, _ := getAsmVar(*parameters[i].Variable, state.currentFunction, state)
 			// FIXME: Add type checking, also for returned value
 			//if asmVar.asmType !=
 			if asmVar.asmType.size != 1 {
 				panic(fmt.Sprintf("ERROR: Only types with size 1 can be passed as parameter (tried passing type '%s' which has size %d as parameter %d to function '%s' in scope '%s')", asmVar.asmType.name, asmVar.asmType.size, i, funcName, state.currentFunction))
 			}
-		}
+		}*/
 
 		paramAsAsmCalc := runtimeValueToAsmParam(parameters[i])
 		retval = append(retval, &asmCmd{
